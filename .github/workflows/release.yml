@@ -162,6 +162,12 @@ jobs:
 
       # Both frontends publish into the same folder so one archive carries both, and so the Linux
       # packaging step has a single tree to assemble from.
+      # The two frontends MUST NOT be published into the same folder.
+      #
+      # The GUI builds NcmForge.exe and the CLI builds ncmforge.exe, which is the same file name on
+      # Windows and on macOS's default filesystem. Publishing both into one directory therefore
+      # overwrites the GUI with the CLI, and the release ships a package whose "NcmForge.exe" is a
+      # console program with no window at all. They are staged apart and assembled side by side.
       - name: Publish GUI
         run: >
           dotnet publish src/NcmForge.App/NcmForge.App.csproj
@@ -176,7 +182,28 @@ jobs:
           -c Release -r ${{ matrix.rid }} --self-contained true
           -p:Version=${{ needs.version.outputs.version }}
           -p:DebugType=none
-          -o stage
+          -o stage-cli
+
+      - name: Assemble the package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p stage/cli
+          cp -a stage-cli/. stage/cli/
+
+          # Fail loudly rather than shipping a package with no usable window again: the GUI must be
+          # a Windows GUI subsystem binary, and the CLI must sit beside it, not replace it.
+          if [ ! -f stage/ncmforge ] && [ ! -f stage/ncmforge.exe ]; then
+            echo "the CLI binary is missing from the package" >&2
+            exit 1
+          fi
+          if [ ! -f stage/NcmForge ] && [ ! -f stage/NcmForge.exe ]; then
+            echo "the GUI binary is missing from the package" >&2
+            exit 1
+          fi
+          ls -la stage | head -20
+          echo "--- cli ---"
+          ls -la stage/cli | head -5
 
       - name: Add licence, disclaimer and notices
         shell: bash
@@ -260,6 +287,18 @@ jobs:
         with:
           name: tree-${{ matrix.rid }}
           path: published
+
+      - name: Flatten the CLI for packaging
+        # The tree keeps the CLI in cli/ to survive case-insensitive filesystems, but the deb, rpm
+        # and snap install it as /usr/bin/ncmforge. Linux filesystems are case-sensitive, so lifting
+        # it to the root here is safe.
+        run: |
+          set -euo pipefail
+          if [ -f published/cli/ncmforge ]; then
+            cp published/cli/ncmforge published/ncmforge
+            chmod +x published/ncmforge
+          fi
+          ls -la published | head -10
 
       - name: Build the packages
         env:

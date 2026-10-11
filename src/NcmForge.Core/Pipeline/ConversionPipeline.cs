@@ -366,6 +366,21 @@ public sealed class ConversionPipeline
                 .ConfigureAwait(false);
         }
 
+        if (!result.Succeeded && IsOutputWriteFailure(result.StandardError))
+        {
+            string fallbackDirectory = CreateFallbackDirectory(workDirectory);
+            string fallbackPath = Path.Combine(fallbackDirectory, Path.GetFileName(encodedPath));
+            log?.Invoke($"retry     : 输出目录拒绝 ffmpeg 写入，改用 {fallbackDirectory} 重试");
+
+            result = await RunEncodeAsync(ffmpeg, ffmpegInput, fallbackPath, choice, target, options, log, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (result.Succeeded)
+            {
+                encodedPath = fallbackPath;
+            }
+        }
+
         if (!result.Succeeded)
         {
             throw new ConversionException(
@@ -488,6 +503,7 @@ public sealed class ConversionPipeline
         }
 
         var failures = new List<string>();
+        var usedFallbackDirectory = false;
 
         for (var i = 0; i < ladder.Count; i++)
         {
@@ -500,6 +516,22 @@ public sealed class ConversionPipeline
 
             ProcessResult result = await RunEncodeAsync(ffmpeg, input, encodedPath, rung, targetChannels, options, tags, coverPath, log, cancellationToken)
                 .ConfigureAwait(false);
+
+            // If ffmpeg cannot create its output here, the folder is refusing it rather than the
+            // arguments being wrong. On Windows that is usually Controlled Folder Access or
+            // antivirus declining to let a freshly-downloaded ffmpeg write inside a protected tree
+            // such as Music - the app's own writes succeed, so it only shows up once ffmpeg is asked
+            // to write. Move the work outside that tree and carry on.
+            if (!result.Succeeded && !usedFallbackDirectory && IsOutputWriteFailure(result.StandardError))
+            {
+                usedFallbackDirectory = true;
+                workDirectory = CreateFallbackDirectory(workDirectory);
+                encodedPath = Path.Combine(workDirectory, $"{baseName}.rung{i}{rung.Extension}");
+                log?.Invoke($"retry     : 输出目录拒绝 ffmpeg 写入，改用 {workDirectory} 重试");
+
+                result = await RunEncodeAsync(ffmpeg, input, encodedPath, rung, targetChannels, options, tags, coverPath, log, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             // A container that cannot take the picture should not cost us the rung.
             if (!result.Succeeded && coverPath is not null && !rung.SelfTagged)
@@ -660,23 +692,83 @@ public sealed class ConversionPipeline
         Add("date", tags.Year?.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
-    private static string FirstLine(string text)
+    /// <summary>
+    /// Picks the line of ffmpeg's output that actually explains a failure.
+    /// </summary>
+    /// <remarks>
+    /// ffmpeg always opens with an "Input #0 ..." banner, so returning the first line reports the
+    /// banner instead of the error. Every rung of the fallback ladder then looked as though it had
+    /// failed for the same reason, with the real cause — "Permission denied" — never shown.
+    /// </remarks>
+    internal static string FirstLine(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
             return "(no diagnostics)";
         }
 
-        foreach (string line in text.Split('\n'))
+        List<string> lines =
+        [
+            .. text.Split('\n')
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0 && !line.StartsWith("In fftools/", StringComparison.Ordinal)),
+        ];
+
+        if (lines.Count == 0)
         {
-            string trimmed = line.Trim();
-            if (trimmed.Length > 0 && !trimmed.StartsWith("In fftools/", StringComparison.Ordinal))
+            return "(no diagnostics)";
+        }
+
+        // Ordered by how much each tells the reader; the first match wins.
+        string[] markers =
+        [
+            "Permission denied",
+            "Error opening output",
+            "Error while opening encoder",
+            "Error while opening decoder",
+            "No such file or directory",
+            "Unknown encoder",
+            "Error initializing",
+            "Invalid argument",
+            "not supported",
+        ];
+
+        foreach (string marker in markers)
+        {
+            string? hit = lines.FirstOrDefault(line => line.Contains(marker, StringComparison.OrdinalIgnoreCase));
+            if (hit is not null)
             {
-                return trimmed.Length > 160 ? trimmed[..160] + "…" : trimmed;
+                return Shorten(hit);
             }
         }
 
-        return "(no diagnostics)";
+        // With no recognised marker the reason is the last thing ffmpeg said before giving up, not
+        // the banner it opened with.
+        string? last = lines.LastOrDefault(line => !line.StartsWith("Input #", StringComparison.Ordinal));
+        return Shorten(last ?? lines[^1]);
+    }
+
+    private static string Shorten(string line) => line.Length > 200 ? line[..200] + "…" : line;
+
+    /// <summary>Whether ffmpeg failed because it could not create its own output file.</summary>
+    internal static bool IsOutputWriteFailure(string text)
+        => text.Contains("Permission denied", StringComparison.OrdinalIgnoreCase)
+        || text.Contains("Error opening output", StringComparison.OrdinalIgnoreCase)
+        || text.Contains("Error opening output file", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A scratch folder outside the output tree, for when that tree refuses ffmpeg.
+    /// </summary>
+    /// <remarks>
+    /// Keyed on the original folder name so a run is still identifiable, and placed under the
+    /// system temp directory, which is never inside a folder-protection rule.
+    /// </remarks>
+    private static string CreateFallbackDirectory(string workDirectory)
+    {
+        string name = Path.GetFileName(workDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        string path = Path.Combine(Path.GetTempPath(), "NcmForge", name);
+        Directory.CreateDirectory(path);
+        return path;
     }
 
     private static async Task<string> DecodeWithExternalToolAsync(NcmFile ncm, string payloadPath, ConversionOptions options,
