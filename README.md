@@ -38,14 +38,43 @@
 
 ## 下载
 
-到 [**Releases**](https://github.com/112012201/ncmforge/releases) 下载对应平台的自包含压缩包，
-解压即可运行，**目标机器无需安装 .NET**。
+到 [**Releases**](https://github.com/112012201/ncmforge/releases) 下载对应平台的包。
+除 Linux 发行版包外都是自包含的，**目标机器无需安装 .NET**。
 
-| 平台 | 图形界面 | 命令行 |
+| 平台 | 架构 | 包 |
 |---|---|---|
-| Windows x64 | `NcmForge.exe` | `ncmforge.exe` |
-| Linux x64 | `NcmForge` | `ncmforge` |
-| macOS arm64 | `NcmForge` | `ncmforge` |
+| Windows | x64 / x86 / ARM64 | `NcmForge-<版本>-win-*.zip` |
+| macOS | Apple Silicon (arm64) / Intel (x64) | `NcmForge-<版本>-osx-*.tar.gz` |
+| Linux | x64 / arm64 | `NcmForge-<版本>-linux-*.tar.gz` |
+| Linux | amd64 / arm64 | `.deb` · `.rpm` · `.snap` |
+| 源码 | — | `NcmForge-<版本>-src.tar.gz` |
+
+每个 Windows / macOS 压缩包里同时有**图形界面**和**命令行**两个程序：
+
+| | Windows | Linux / macOS |
+|---|---|---|
+| 图形界面 | `NcmForge.exe` | `NcmForge` |
+| 命令行 | `ncmforge.exe` | `ncmforge` |
+
+**校验下载完整性**：发布页附带 `SHA256SUMS`。
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+### 安装 Linux 包
+
+```bash
+sudo dpkg -i ncmforge_*_amd64.deb            # Debian / Ubuntu
+sudo dnf install ./ncmforge-*.x86_64.rpm     # Fedora / RHEL
+sudo snap install --dangerous ./ncmforge_*.snap   # Snap
+```
+
+deb / rpm / snap 安装后提供 `/usr/bin/ncmforge`（命令行）与 `/usr/bin/ncmforge-gui`（图形界面），
+并注册桌面菜单项。
+
+> snap 使用 `classic` 隔离级别——本工具需要读写任意路径下的音乐文件。本地安装需要 `--dangerous`，
+> 从 Snap Store 安装则不需要。
 
 > 发布包**不包含 ffmpeg**（见下方「关于沉浸声」）。普通曲目无需任何额外配置。
 

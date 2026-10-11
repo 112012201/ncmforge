@@ -240,10 +240,21 @@ cp %{buildroot}/usr/lib/ncmforge/THIRD-PARTY-NOTICES.md %{buildroot}/usr/share/d
 EOF
 
   echo "==> ncmforge-$RPM_VERSION-1.$RPM_ARCH.rpm"
-  rpmbuild --define "_topdir $RPM_TOP" --define "_binary_payload w2.xzdio" \
-           -bb "$RPM_TOP/SPECS/ncmforge.spec" >/dev/null
-
-  find "$RPM_TOP/RPMS" -name '*.rpm' -exec cp {} "$OUT_DIR/" \;
+  # --target is required, not cosmetic: the spec declares BuildArch, and rpmbuild on a foreign host
+  # otherwise stops with "No compatible architectures found for build". Cross-building a pure-data
+  # package this way is supported; only compiling one would need a real toolchain.
+  #
+  # A failure here is reported but not fatal: one architecture's rpm is not worth denying everyone
+  # the deb, the snap and the tarball for.
+  if rpmbuild --define "_topdir $RPM_TOP" \
+              --define "_binary_payload w2.xzdio" \
+              --target "$RPM_ARCH" \
+              -bb "$RPM_TOP/SPECS/ncmforge.spec" > "$STAGE/rpm-$ARCH.log" 2>&1; then
+    find "$RPM_TOP/RPMS" -name '*.rpm' -exec cp {} "$OUT_DIR/" \;
+  else
+    echo "warning: rpmbuild failed for $RPM_ARCH - no .rpm will be published for this architecture" >&2
+    tail -n 25 "$STAGE/rpm-$ARCH.log" >&2
+  fi
 else
   echo "==> skipping .rpm (rpmbuild not installed)"
 fi
@@ -295,7 +306,10 @@ EOF
   SNAP_NAME="ncmforge_${VERSION}_${SNAP_ARCH}.snap"
   echo "==> $SNAP_NAME"
   # -noappend so repeated runs do not grow the image; -all-root because snap files must be root-owned.
-  mksquashfs "$SNAP_ROOT" "$OUT_DIR/$SNAP_NAME" -noappend -all-root -comp xz -quiet
+  if ! mksquashfs "$SNAP_ROOT" "$OUT_DIR/$SNAP_NAME" -noappend -all-root -comp xz -quiet; then
+    echo "warning: mksquashfs failed - no .snap will be published for this architecture" >&2
+    rm -f "$OUT_DIR/$SNAP_NAME"
+  fi
 else
   echo "==> skipping .snap (mksquashfs not installed)"
 fi
