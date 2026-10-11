@@ -57,6 +57,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          # An annotated tag needs a committer identity, and a fresh runner has none: without this
+          # `git tag -a` fails with "empty ident name not allowed".
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           if [ "${{ github.event_name }}" = "push" ]; then
             tag="${{ github.ref_name }}"
             echo "tag push: using $tag verbatim"
