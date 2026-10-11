@@ -43,16 +43,29 @@ echo "  to   : $OUT_DIR"
 # ---------------------------------------------------------------------------
 # Version spellings
 #
-# A release candidate is "1.0.0-rc2" upstream. Debian and RPM both need it expressed so that the
-# candidate sorts BEFORE the final 1.0.0, otherwise an RC would look newer than the release it
-# precedes and package managers would refuse to upgrade.
+# A pre-release is "1.0.0-rc2" or "1.2.4152-alpha-rc5" upstream. Both Debian and RPM need it spelled
+# so the pre-release sorts BEFORE the release it precedes, which is what "~" does - otherwise the
+# candidate looks newer than the release and package managers refuse to upgrade to it.
+#
+# The two differ on one point. RPM separates Version from Release with "-", so a hyphen is ILLEGAL
+# anywhere in its Version field ("Illegal char '-' (0x2d)"), and the suffix's own hyphens have to
+# become "_". Debian accepts hyphens in the upstream part as long as a revision follows, which it
+# always does here.
+#
+# Splitting on the FIRST hyphen puts the "~" immediately after the numeric core, so it governs the
+# whole comparison rather than only the tail.
 # ---------------------------------------------------------------------------
-DEB_VERSION="$VERSION"
-RPM_VERSION="$VERSION"
 case "$VERSION" in
-  *-rc*) DEB_VERSION="${VERSION%%-rc*}~rc${VERSION##*-rc}"; RPM_VERSION="${VERSION%%-rc*}~rc${VERSION##*-rc}" ;;
-  *-beta*) DEB_VERSION="${VERSION%%-beta*}~beta${VERSION##*-beta}"; RPM_VERSION="${VERSION%%-beta*}~beta${VERSION##*-beta}" ;;
-  *-alpha*) DEB_VERSION="${VERSION%%-alpha*}~alpha${VERSION##*-alpha}"; RPM_VERSION="${VERSION%%-alpha*}~alpha${VERSION##*-alpha}" ;;
+  *-*)
+    VERSION_CORE="${VERSION%%-*}"      # 1.2.4152
+    VERSION_SUFFIX="${VERSION#*-}"     # alpha-rc5
+    DEB_VERSION="${VERSION_CORE}~${VERSION_SUFFIX}"
+    RPM_VERSION="${VERSION_CORE}~${VERSION_SUFFIX//-/_}"
+    ;;
+  *)
+    DEB_VERSION="$VERSION"
+    RPM_VERSION="$VERSION"
+    ;;
 esac
 
 # Debian revision, always 1 here: the packaging itself has not been revised.
@@ -265,6 +278,9 @@ EOF
   else
     echo "warning: rpmbuild failed for $RPM_ARCH - no .rpm will be published for this architecture" >&2
     tail -n 25 "$STAGE/rpm-$ARCH.log" >&2
+    # Also surface it on the run summary: a step that reports success while quietly dropping an
+    # artifact is how the aarch64 rpm went missing once already.
+    echo "::warning title=rpmbuild failed for $RPM_ARCH::no .rpm will be published for $RPM_ARCH"
   fi
 else
   echo "==> skipping .rpm (rpmbuild not installed)"
