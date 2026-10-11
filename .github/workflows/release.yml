@@ -191,14 +191,14 @@ jobs:
           mkdir -p stage/cli
           cp -a stage-cli/. stage/cli/
 
-          # Fail loudly rather than shipping a package with no usable window again: the GUI must be
-          # a Windows GUI subsystem binary, and the CLI must sit beside it, not replace it.
-          if [ ! -f stage/ncmforge ] && [ ! -f stage/ncmforge.exe ]; then
-            echo "the CLI binary is missing from the package" >&2
+          # Fail loudly rather than shipping a package with no usable window again. The GUI must be
+          # at the root of the package and the CLI beside it under cli/, never in its place.
+          if [ ! -f stage/cli/ncmforge ] && [ ! -f stage/cli/ncmforge.exe ]; then
+            echo "the CLI binary is missing from stage/cli/" >&2
             exit 1
           fi
           if [ ! -f stage/NcmForge ] && [ ! -f stage/NcmForge.exe ]; then
-            echo "the GUI binary is missing from the package" >&2
+            echo "the GUI binary is missing from the package root" >&2
             exit 1
           fi
           ls -la stage | head -20
