@@ -1,19 +1,29 @@
 name: Release
 
-# Triggered by pushing a tag such as v1.0.0 or v1.0.0-rc1, or run by hand against a tag.
+# Builds and publishes NcmForge.
 #
-# A tag containing a hyphen is treated as a pre-release (v1.0.0-rc1, v1.1.0-beta2, ...): the GitHub
-# release is flagged as a pre-release so it does not become the "latest" download. Plain semver tags
-# (v1.0.0) publish as a normal release.
+# Triggers:
+#   * pushing a tag such as v1.0.0 or v1.0.0-rc2   -> that tag is the version
+#   * workflow_dispatch with a bump                -> the NEXT version is computed from the existing
+#                                                     tags and the tag is created for you
+#
+# An RC is published as a normal release, not a pre-release: this project uses release candidates as
+# its primary distribution, so they carry the "latest" marker on purpose.
+#
+# Every artifact lands in ONE release, created by the final job from the collected artifacts. Having
+# each platform job append to a shared release would race, and three jobs creating it at once can
+# fail with a 422.
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Existing tag to build and release'
-        required: true
+      bump:
+        description: 'Version to compute from the latest tag'
+        type: choice
+        options: [rc, patch, minor, major]
+        default: rc
 
 permissions:
   contents: write
@@ -24,78 +34,154 @@ env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
 
 jobs:
-  # Tests gate the release, and run once rather than once per platform.
-  test:
-    name: Build and test
+  # ---------------------------------------------------------------------------
+  # Decide what version this run is building.
+  # ---------------------------------------------------------------------------
+  version:
+    name: Resolve version
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      is_rc: ${{ steps.v.outputs.is_rc }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Every tag is needed to compute the next version.
+          fetch-depth: 0
 
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+      - name: Compute the version
+        id: v
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${{ github.ref_name }}"
+            echo "tag push: using $tag verbatim"
+          else
+            bump="${{ inputs.bump }}"
+            latest="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+            echo "latest tag: ${latest:-<none>}"
+
+            if [ -z "$latest" ]; then
+              tag="v0.1.0-rc1"
+            else
+              # Strip the leading v and any pre-release suffix to get the numeric core.
+              core="${latest#v}"
+              core="${core%%-*}"
+              major="${core%%.*}"
+              rest="${core#*.}"
+              minor="${rest%%.*}"
+              patch="${rest#*.}"
+              : "${patch:=0}"
+
+              case "$bump" in
+                major) major=$((major + 1)); minor=0; patch=0; tag="v$major.$minor.$patch-rc1" ;;
+                minor) minor=$((minor + 1)); patch=0;      tag="v$major.$minor.$patch-rc1" ;;
+                patch) patch=$((patch + 1));               tag="v$major.$minor.$patch-rc1" ;;
+                rc)
+                  # Continue the candidate series if the latest tag already is one, otherwise start
+                  # a new series one patch above the last final release.
+                  if [[ "$latest" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)-rc([0-9]+)$ ]]; then
+                    n=$(( ${BASH_REMATCH[4]} + 1 ))
+                    tag="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}-rc$n"
+                  else
+                    tag="v$major.$minor.$((patch + 1))-rc1"
+                  fi
+                  ;;
+                *) echo "unknown bump: $bump" >&2; exit 1 ;;
+              esac
+            fi
+
+            echo "computed tag: $tag"
+            git tag -a "$tag" -m "NcmForge $tag"
+            git push origin "$tag"
+          fi
+
+          version="${tag#v}"
+          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in *-*) echo "is_rc=true" >> "$GITHUB_OUTPUT" ;; *) echo "is_rc=false" >> "$GITHUB_OUTPUT" ;; esac
+          echo "building version $version"
+
+  # ---------------------------------------------------------------------------
+  # Tests gate everything.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    needs: version
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
       - name: Test
-        run: dotnet test NcmForge.sln -c Release
+        run: dotnet test NcmForge.sln -c Release -p:Version=${{ needs.version.outputs.version }}
 
-  pack:
-    name: Pack ${{ matrix.rid }}
-    needs: test
+  # ---------------------------------------------------------------------------
+  # One self-contained folder per platform, holding both frontends.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build ${{ matrix.rid }}
     runs-on: ${{ matrix.os }}
+    needs: [version, test]
 
     strategy:
-      # Serialised: every job appends its files to the same GitHub release, and three jobs creating
-      # it at once can race each other into a 422. Slower, but it cannot half-fail.
-      max-parallel: 1
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            rid: win-x64
-            ext: zip
-          - os: ubuntu-latest
-            rid: linux-x64
-            ext: tar.gz
-          - os: macos-latest
-            rid: osx-arm64
-            ext: tar.gz
+          - { os: windows-latest, rid: win-x64,    platform: win,    format: zip }
+          - { os: windows-latest, rid: win-x86,    platform: win,    format: zip }
+          - { os: windows-latest, rid: win-arm64,  platform: win,    format: zip }
+          - { os: macos-latest,   rid: osx-x64,    platform: macos,  format: tar.gz }
+          - { os: macos-latest,   rid: osx-arm64,  platform: macos,  format: tar.gz }
+          - { os: ubuntu-latest,  rid: linux-x64,  platform: linux,  format: tar.gz }
+          - { os: ubuntu-latest,  rid: linux-arm64, platform: linux, format: tar.gz }
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      # No ffmpeg is bundled here on purpose: it is a third-party GPLv3 build of roughly 110 MB, and
-      # this repository cannot offer matching source for someone else's binary. The archive carries a
-      # note explaining where to put one instead.
+      # Both frontends publish into the same folder so one archive carries both, and so the Linux
+      # packaging step has a single tree to assemble from.
       - name: Publish GUI
         run: >
           dotnet publish src/NcmForge.App/NcmForge.App.csproj
           -c Release -r ${{ matrix.rid }} --self-contained true
+          -p:Version=${{ needs.version.outputs.version }}
           -p:DebugType=none
-          -o pack/gui
+          -o stage
 
       - name: Publish CLI
         run: >
           dotnet publish src/NcmForge.Cli/NcmForge.Cli.csproj
           -c Release -r ${{ matrix.rid }} --self-contained true
+          -p:Version=${{ needs.version.outputs.version }}
           -p:DebugType=none
-          -o pack/cli
+          -o stage
 
       - name: Add licence, disclaimer and notices
         shell: bash
         run: |
-          for target in pack/gui pack/cli; do
-            cp LICENSE "$target/LICENSE"
-            cp DISCLAIMER.md "$target/DISCLAIMER.md"
-            cp THIRD-PARTY-NOTICES.md "$target/THIRD-PARTY-NOTICES.md"
-            mkdir -p "$target/tools/ffmpeg"
-            cat > "$target/tools/ffmpeg/README.md" <<'EOF'
+          set -euo pipefail
+          for f in LICENSE DISCLAIMER.md THIRD-PARTY-NOTICES.md README.md; do
+            [ -f "$f" ] && cp "$f" stage/ || true
+          done
+          mkdir -p stage/tools/ffmpeg
+          cat > stage/tools/ffmpeg/README.md <<'EOF'
           # Put an ffmpeg here to support Audio Vivid
           #
           # NcmForge looks for ffmpeg in this folder BEFORE it looks on PATH.
@@ -104,73 +190,240 @@ jobs:
           # immersive audio). To convert those files you need a build containing the av3a decoder.
           # Run `ncmforge doctor` and look for a line reading:  yes  av3a
           #
-          # Without one everything else still works: those files are copied losslessly instead of
-          # converted, with tags and cover art written as usual.
+          # A suitable Windows build is attached to the GitHub release as
+          # NcmForge-ffmpeg-av3a-win-x64.zip
           EOF
-          done
 
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
+      - name: Archive (Windows)
+        if: matrix.format == 'zip'
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
-          Compress-Archive -Path pack/gui/* -DestinationPath "NcmForge-$tag-${{ matrix.rid }}.zip"
-          Compress-Archive -Path pack/cli/* -DestinationPath "NcmForge-CLI-$tag-${{ matrix.rid }}.zip"
+          Compress-Archive -Path stage/* -DestinationPath "NcmForge-${{ needs.version.outputs.version }}-${{ matrix.rid }}.zip"
 
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      - name: Archive (Unix)
+        if: matrix.format == 'tar.gz'
         shell: bash
         run: |
-          tag="${{ github.ref_name }}"
-          tar -czf "NcmForge-$tag-${{ matrix.rid }}.tar.gz" -C pack/gui .
-          tar -czf "NcmForge-CLI-$tag-${{ matrix.rid }}.tar.gz" -C pack/cli .
+          tar -czf "NcmForge-${{ needs.version.outputs.version }}-${{ matrix.rid }}.tar.gz" -C stage .
 
-      - name: Checksums
-        shell: bash
+      - name: Upload the platform archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}-archive
+          path: NcmForge-${{ needs.version.outputs.version }}-${{ matrix.rid }}.${{ matrix.format }}
+          if-no-files-found: error
+
+      # The Linux packaging job needs the raw tree, not the archive.
+      - name: Upload the Linux tree for packaging
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}-tree
+          path: stage
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # deb, rpm and snap, built from the published Linux tree.
+  # ---------------------------------------------------------------------------
+  linux-packages:
+    name: Linux packages
+    runs-on: ubuntu-latest
+    needs: [version, build]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64,   arch: amd64 }
+          - { rid: linux-arm64, arch: arm64 }
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Install the packaging tools
         run: |
-          shopt -s nullglob
-          for f in NcmForge-*.${{ matrix.ext }}; do
-            if command -v sha256sum >/dev/null 2>&1; then
-              sha256sum "$f" > "$f.sha256"
-            else
-              shasum -a 256 "$f" > "$f.sha256"
-            fi
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends rpm squashfs-tools
+
+      - name: Download the published tree
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.rid }}-tree
+          path: published
+
+      - name: Build the packages
+        env:
+          PUBLISHED_DIR: published
+          VERSION: ${{ needs.version.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          OUT_DIR: dist-linux
+          ICON: ${{ github.workspace }}/src/NcmForge.App/Assets/ncmforge.png
+        run: |
+          chmod +x scripts/package-linux.sh
+          ./scripts/package-linux.sh
+
+      # The plain tarball is produced by the build job; drop the copy this script also makes so the
+      # two do not collide in the release.
+      - name: Remove the duplicate tarball
+        run: rm -f "dist-linux/NcmForge-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz" \
+                  "dist-linux/NcmForge-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz.sha256"
+
+      - name: Show what was produced
+        run: ls -la dist-linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}-packages
+          path: dist-linux/*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Source archive, so the GPL obligation is satisfiable from the release itself.
+  # ---------------------------------------------------------------------------
+  source:
+    name: Source archive
+    runs-on: ubuntu-latest
+    needs: version
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Create the source tarball
+        run: |
+          set -euo pipefail
+          name="NcmForge-${{ needs.version.outputs.version }}-src"
+          mkdir -p "/tmp/$name"
+          # Everything tracked at this tag, minus build output that is not in the tree anyway.
+          git archive --format=tar HEAD | tar -x -C "/tmp/$name"
+          tar -czf "$name.tar.gz" -C /tmp "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          ls -la "$name.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-archive
+          path: |
+            NcmForge-*-src.tar.gz
+            NcmForge-*-src.tar.gz.sha256
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # One release, assembled from everything above.
+  # ---------------------------------------------------------------------------
+  release:
+    name: Publish the release
+    runs-on: ubuntu-latest
+    needs: [version, test, build, linux-packages, source]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Collect every artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Optionally attach the AVS3-P3 ffmpeg
+        # A 110 MB third-party GPLv3 build does not belong in git. Set the repository variable
+        # FFMPEG_URL to a ready-made zip to have it attached; leave it unset and the release simply
+        # ships without the bundled decoder, which only costs Audio Vivid conversion.
+        #
+        # scripts/upload-ffmpeg.ps1 builds that zip and can upload it directly as well.
+        if: ${{ vars.FFMPEG_URL != '' }}
+        run: |
+          set -euo pipefail
+          dest="assets/NcmForge-ffmpeg-av3a-win-x64.zip"
+          echo "fetching ${{ vars.FFMPEG_URL }}"
+          curl -fsSL "${{ vars.FFMPEG_URL }}" -o "$dest"
+          # Refuse to publish a download that is not actually a zip.
+          if ! unzip -l "$dest" >/dev/null 2>&1; then
+            echo "FFMPEG_URL did not return a readable zip" >&2
+            rm -f "$dest"
+            exit 1
+          fi
+          unzip -l "$dest" | tail -n +2 | head -20
+
+      - name: Build the combined checksum list
+        run: |
+          set -euo pipefail
+          cd assets
+          # Per-file sums already exist for some artifacts; the combined list covers everything.
+          rm -f SHA256SUMS SHA256SUMS.txt
+          for f in *; do
+            case "$f" in
+              *.sha256|SHA256SUMS*) continue ;;
+            esac
+            sha256sum "$f" >> SHA256SUMS
           done
-          cat ./*.sha256 2>/dev/null || true
+          sort -o SHA256SUMS SHA256SUMS
+          echo "--- assets ---"
+          ls -la
+          echo "--- checksums ---"
+          cat SHA256SUMS
 
-      - name: Upload the packaged artifacts
+      - name: Publish
         uses: softprops/action-gh-release@v2
         with:
-          # A hyphen in the tag means this is a release candidate, not the latest stable build.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: NcmForge ${{ needs.version.outputs.version }}
+          # Deliberately a normal release even for an RC: this project ships candidates as its main
+          # distribution, so they must carry the "latest" marker for the download links to resolve.
+          prerelease: false
           draft: false
           generate_release_notes: true
-          files: |
-            NcmForge-*.${{ matrix.ext }}
-            NcmForge-*.${{ matrix.ext }}.sha256
+          files: assets/*
           body: |
-            ## NcmForge ${{ github.ref_name }}
+            ## NcmForge ${{ needs.version.outputs.version }}
 
-            自包含发布包，**目标机器无需安装 .NET**。解压后直接运行：
+            自包含发布包，**目标机器无需安装 .NET**。解压后直接运行。
 
-            | 平台 | 图形界面 | 命令行 |
+            ### 下载
+
+            | 平台 | 架构 | 文件 |
             |---|---|---|
-            | Windows x64 | `NcmForge.exe` | `ncmforge.exe` |
-            | Linux x64 | `NcmForge` | `ncmforge` |
-            | macOS arm64 | `NcmForge` | `ncmforge` |
+            | Windows | x64 / x86 / ARM64 | `NcmForge-${{ needs.version.outputs.version }}-win-*.zip` |
+            | macOS | Apple Silicon (arm64) | `NcmForge-${{ needs.version.outputs.version }}-osx-arm64.tar.gz` |
+            | macOS | Intel (x64) | `NcmForge-${{ needs.version.outputs.version }}-osx-x64.tar.gz` |
+            | Linux | x64 / arm64 | `NcmForge-${{ needs.version.outputs.version }}-linux-*.tar.gz` |
+            | Linux | amd64 / arm64 | `.deb`、`.rpm`、`.snap` |
 
-            每个压缩包都附带 `.sha256` 校验文件。
+            每个 Windows / macOS 包内含图形界面（`NcmForge`）与命令行（`ncmforge`）两个程序。
+            Linux 的 deb / rpm / snap 安装后会提供 `/usr/bin/ncmforge` 与 `/usr/bin/ncmforge-gui`。
+
+            **校验**：下载后用 `SHA256SUMS` 核对完整性。
+
+            ```bash
+            sha256sum -c SHA256SUMS --ignore-missing
+            ```
+
+            ### 安装 Linux 包
+
+            ```bash
+            sudo dpkg -i ncmforge_*_amd64.deb          # Debian / Ubuntu
+            sudo dnf install ./ncmforge-*.x86_64.rpm   # Fedora / RHEL
+            sudo snap install --dangerous ./ncmforge_*_amd64.snap
+            ```
+
+            > snap 使用 `classic` 隔离级别（需要访问任意路径下的音乐文件）。本地安装需加 `--dangerous`；
+            > 从 Snap Store 安装则不需要。
 
             ### 关于 Audio Vivid（沉浸声 / 菁彩声）
 
-            **本发布包不包含 ffmpeg。** 主流 ffmpeg 构建无法解码 AVS3-P3 / Audio Vivid，
-            因此沉浸声文件会被**无损提取**而不是转码。
+            主流 ffmpeg 构建无法解码 AVS3-P3 / Audio Vivid，因此**默认情况下沉浸声文件会被无损提取**
+            而不是转码（音频比特不变，标签与封面照常写入）。
 
-            要转换它们，请把一个带 `av3a` 解码器的 ffmpeg 放进程序目录的 `tools/ffmpeg/`，
+            需要真正转码时，把一个带 `av3a` 解码器的 ffmpeg 放进程序目录的 `tools/ffmpeg/`，
             然后用 `ncmforge doctor` 确认出现 `yes  av3a`。
 
             ### 许可证与免责
 
-            NcmForge 以 **GPL-3.0-or-later** 发布。使用前请阅读包内的 `DISCLAIMER.md`（免责声明）
-            与 `THIRD-PARTY-NOTICES.md`（第三方组件）。本软件仅用于个人对**自己合法拥有**的
-            音频文件做格式转换与备份。
+            NcmForge 以 **GPL-3.0-or-later** 发布，源码见 `NcmForge-${{ needs.version.outputs.version }}-src.tar.gz`。
+            使用前请阅读包内的 `DISCLAIMER.md`（免责声明）与 `THIRD-PARTY-NOTICES.md`（第三方组件）。
+            **本软件仅用于个人对自己合法拥有的音频文件做格式转换与备份。**
