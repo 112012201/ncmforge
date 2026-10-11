@@ -268,15 +268,13 @@ jobs:
           ARCH: ${{ matrix.arch }}
           OUT_DIR: dist-linux
           ICON: ${{ github.workspace }}/src/NcmForge.App/Assets/ncmforge.png
+          # The build job already produced the plain tarball under the rid name; letting the script
+          # make its own copy means deleting it afterwards, and a half-done delete left an orphaned
+          # .sha256 on the release.
+          SKIP_TARBALL: '1'
         run: |
           chmod +x scripts/package-linux.sh
           ./scripts/package-linux.sh
-
-      # The plain tarball is produced by the build job; drop the copy this script also makes so the
-      # two do not collide in the release.
-      - name: Remove the duplicate tarball
-        run: rm -f "dist-linux/NcmForge-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz" \
-                  "dist-linux/NcmForge-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz.sha256"
 
       - name: Show what was produced
         run: ls -la dist-linux

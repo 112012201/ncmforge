@@ -110,10 +110,18 @@ fi
 
 # ---------------------------------------------------------------------------
 # 1. Plain binary tarball
+#
+# SKIP_TARBALL=1 is for the release pipeline, where the build job has already produced the tarball
+# under its own rid name. Deleting the duplicate afterwards is fiddly and left an orphaned checksum
+# behind once, so the script simply does not make it.
 # ---------------------------------------------------------------------------
-TARBALL="NcmForge-$VERSION-linux-$ARCH.tar.gz"
-echo "==> $TARBALL"
-tar -czf "$OUT_DIR/$TARBALL" -C "$APP_ROOT" .
+if [ "${SKIP_TARBALL:-0}" != "1" ]; then
+  TARBALL="NcmForge-$VERSION-linux-$ARCH.tar.gz"
+  echo "==> $TARBALL"
+  tar -czf "$OUT_DIR/$TARBALL" -C "$APP_ROOT" .
+else
+  echo "==> skipping the binary tarball (SKIP_TARBALL=1; the build job already made it)"
+fi
 
 # ---------------------------------------------------------------------------
 # 2. Debian package
