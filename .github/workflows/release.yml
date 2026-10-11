@@ -67,7 +67,9 @@ jobs:
             echo "tag push: using $tag verbatim"
           else
             bump="${{ inputs.bump }}"
-            latest="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+            # sed reads the whole stream, unlike head, which closes the pipe early and makes the
+            # writer die of EPIPE - fatal under `set -o pipefail`.
+            latest="$(git tag --list 'v*' --sort=-v:refname | sed -n '1p')"
             echo "latest tag: ${latest:-<none>}"
 
             if [ -z "$latest" ]; then
@@ -201,9 +203,11 @@ jobs:
             echo "the GUI binary is missing from the package root" >&2
             exit 1
           fi
-          ls -la stage | head -20
-          echo "--- cli ---"
-          ls -la stage/cli | head -5
+          # Counts rather than `ls | head`: head exits after its quota, ls then fails with
+          # "write error: Broken pipe", and pipefail turns that into a failed step.
+          echo "package root: $(find stage -maxdepth 1 -type f | wc -l) files"
+          echo "cli/        : $(find stage/cli -maxdepth 1 -type f | wc -l) files"
+          ls stage/NcmForge* stage/ncmforge* stage/cli/ncmforge* 2>/dev/null || true
 
       - name: Add licence, disclaimer and notices
         shell: bash
@@ -298,7 +302,7 @@ jobs:
             cp published/cli/ncmforge published/ncmforge
             chmod +x published/ncmforge
           fi
-          ls -la published | head -10
+          ls -la published
 
       - name: Build the packages
         env:
@@ -397,7 +401,7 @@ jobs:
             rm -f "$dest"
             exit 1
           fi
-          unzip -l "$dest" | tail -n +2 | head -20
+          unzip -l "$dest" | sed -n '1,20p'
 
       - name: Build the combined checksum list
         run: |
