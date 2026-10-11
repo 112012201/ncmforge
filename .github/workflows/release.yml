@@ -214,7 +214,10 @@ jobs:
       - name: Upload the platform archive
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.rid }}-archive
+          # The release- prefix is load-bearing: the publish job selects artifacts by this pattern,
+          # and downloading them all would drag the raw Linux trees (and their tools/ directory)
+          # into the release assets.
+          name: release-${{ matrix.rid }}
           path: NcmForge-${{ needs.version.outputs.version }}-${{ matrix.rid }}.${{ matrix.format }}
           if-no-files-found: error
 
@@ -223,7 +226,7 @@ jobs:
         if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.rid }}-tree
+          name: tree-${{ matrix.rid }}
           path: stage
           if-no-files-found: error
 
@@ -255,7 +258,7 @@ jobs:
       - name: Download the published tree
         uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.rid }}-tree
+          name: tree-${{ matrix.rid }}
           path: published
 
       - name: Build the packages
@@ -280,7 +283,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.rid }}-packages
+          name: release-${{ matrix.rid }}-packages
           path: dist-linux/*
           if-no-files-found: error
 
@@ -310,7 +313,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: source-archive
+          name: release-source
           path: |
             NcmForge-*-src.tar.gz
             NcmForge-*-src.tar.gz.sha256
@@ -332,6 +335,10 @@ jobs:
       - name: Collect every artifact
         uses: actions/download-artifact@v4
         with:
+          # Only the release-* artifacts. Downloading everything would also pull the raw Linux
+          # build trees used by the packaging job, and a tool that blindly hashes the folder then
+          # trips over their tools/ subdirectory.
+          pattern: release-*
           path: assets
           merge-multiple: true
 
@@ -359,9 +366,11 @@ jobs:
         run: |
           set -euo pipefail
           cd assets
-          # Per-file sums already exist for some artifacts; the combined list covers everything.
           rm -f SHA256SUMS SHA256SUMS.txt
           for f in *; do
+            # Directories and the per-file sums are skipped: only the downloadable archives are
+            # worth a line here, and a stray directory would abort the loop.
+            [ -f "$f" ] || continue
             case "$f" in
               *.sha256|SHA256SUMS*) continue ;;
             esac
