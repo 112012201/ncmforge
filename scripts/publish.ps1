@@ -49,6 +49,15 @@ $apps = @(
     @{ Name = 'NcmForge.Cli'; Path = 'src/NcmForge.Cli/NcmForge.Cli.csproj'; GetsFfmpeg = $FfmpegInCli }
 )
 
+function Copy-LegalNotices([string]$appDirectory) {
+    # GPL-3.0 requires the licence to travel with the binaries, and the disclaimer is the one thing
+    # a user must see before running anything. Both ship inside every layout.
+    foreach ($name in @('LICENSE', 'DISCLAIMER.md', 'THIRD-PARTY-NOTICES.md', 'README.md')) {
+        $file = Join-Path $repo $name
+        if (Test-Path $file) { Copy-Item $file $appDirectory -Force }
+    }
+}
+
 function Copy-Ffmpeg([string]$appDirectory) {
     if (-not $FfmpegDir) { return }
 
@@ -103,6 +112,8 @@ foreach ($rid in $Rids) {
         if ($LASTEXITCODE -ne 0) {
             throw "publish failed for $($app.Name) / $rid"
         }
+
+        Copy-LegalNotices $out
 
         if ($app.GetsFfmpeg) {
             Copy-Ffmpeg $out
