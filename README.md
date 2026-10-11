@@ -4,7 +4,7 @@
 
 **网易云音乐 `.ncm` 解密与转码工具**
 
-[![CI](https://github.com/OWNER/ncmforge/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/ncmforge/actions/workflows/ci.yml)
+[![CI](https://github.com/112012201/ncmforge/actions/workflows/ci.yml/badge.svg)](https://github.com/112012201/ncmforge/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4.svg)](https://dotnet.microsoft.com/)
 
@@ -12,7 +12,7 @@
 
 - **解密**：完整的 NCM 容器解析（AES-128-ECB 密钥层 + 元数据层 + RC4 风格音频密钥流）
 - **转码**：MP3 / FLAC / AAC / ALAC / WavPack / Opus / TrueHD / E-AC-3 / DTS，自动区分「重封装」与「重新编码」
-- **编码降级梯**：重新编码时按 `TrueHD → E-AC-3 → DTS → FLAC → ALAC → Opus → WavPack → AAC → MP3` 逐档尝试，降级时在界面底部给出明确警告
+- **编码降级梯**：重新编码时按 `WavPack → TrueHD → E-AC-3 → DTS → FLAC → ALAC → Opus → AAC-LC → MP3` 逐档尝试，降级时在界面底部给出明确警告。WavPack 排第一是因为**实测只有它能无损承载全部 12 声道**
 - **封面**：网易云官方优先，iTunes / Deezer / Cover Art Archive 兜底，写入 MP3（ID3v2 APIC）、FLAC（PICTURE）、MP4（`covr`）或 Matroska
 - **歌词**：读取同名 `.lrc`（支持网易云 JSON 混合格式与 GBK 编码），写入 USLT / FLAC `LYRICS` / MP4 `©lyr`
 - **沉浸声**：识别并解码 AVS3-P3（Audio Vivid / 菁彩声），12 声道 7.1.4 完整支持

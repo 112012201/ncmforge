@@ -15,9 +15,7 @@
     <Copyright>Copyright (C) 2026 NcmForge contributors</Copyright>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
 
-    <!-- REPLACE "OWNER" with the GitHub account that will host the repository. It is the only
-         place the account name appears in build output, so changing it here is enough. -->
-    <RepositoryUrl>https://github.com/OWNER/ncmforge</RepositoryUrl>
+    <RepositoryUrl>https://github.com/112012201/ncmforge</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 

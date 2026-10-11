@@ -50,8 +50,21 @@ public sealed class CodecLadderTests
         IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(sourceChannels: 12, bitrateKbps: 320, ffmpeg: null);
 
         Assert.Equal(
-            ["Dolby TrueHD", "E-AC-3 (DD+)", "DTS", "FLAC", "ALAC", "Opus", "WavPack", "AAC-LC (MP4)", "MP3"],
+            ["WavPack", "Dolby TrueHD", "E-AC-3 (DD+)", "DTS", "FLAC", "ALAC", "Opus", "AAC-LC (MP4)", "MP3"],
             ladder.Select(r => r.Label));
+    }
+
+    [Fact]
+    public void TheFirstRungPreservesEveryChannelOfAnImmersiveMix()
+    {
+        // The whole point of leading with WavPack: a 12-channel source converts without a downmix,
+        // so the first attempt is also the best one.
+        IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(12, 320, ffmpeg: null);
+        EncodeTarget first = ladder[0];
+
+        Assert.Equal("WavPack", first.Label);
+        Assert.True(first.MaxChannels >= 12);
+        Assert.DoesNotContain(ladder.Skip(1), r => r.MaxChannels >= 12);
     }
 
     [Fact]

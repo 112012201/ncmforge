@@ -50,9 +50,17 @@ public static class CodecLadder
     /// TrueHD encoder errors above 6 channels, and its E-AC-3, DTS and ALAC encoders silently emit
     /// fewer channels than asked — so the honest ceilings are what keep a downmix deliberate
     /// instead of accidental.
+    /// <para>
+    /// WavPack leads because it is the only rung measured to carry a full 12-channel immersive mix
+    /// losslessly. Every rung below it either caps at 8 channels or forces a downmix, so leading
+    /// with it is what lets an AVS3-P3 file convert without discarding its height channels.
+    /// </para>
     /// </remarks>
     public static IReadOnlyList<EncodeTarget> Rungs { get; } =
     [
+        new("WavPack", "wavpack", ".wv", [], 16, true, false, false,
+            "实测可无损承载全部 12 声道（7.1.4），是本表中唯一不降混的无损选择"),
+
         new("Dolby TrueHD", "truehd", ".mka", ["-strict", "-2"], 6, true, false, false,
             "ffmpeg 的 TrueHD 编码器实测上限 6 声道（5.1）；需 Matroska 容器，Windows Media Player 不支持"),
 
@@ -70,9 +78,6 @@ public static class CodecLadder
 
         new("Opus", "libopus", ".opus", [], 8, false, false, false,
             "标准声道映射上限 8 声道"),
-
-        new("WavPack", "wavpack", ".wv", [], 16, true, false, false,
-            "本表中唯一能无损承载全部 12 声道的编码，但播放器支持面较窄"),
 
         // Final rungs: universally playable, hence the warning when reached.
         new("AAC-LC (MP4)", "aac", ".m4a", [], 6, false, true, true,
