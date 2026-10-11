@@ -14,6 +14,7 @@ artifacts/
 # 110 MB, which is over GitHub's 100 MB per-file limit and would make the repository unusable to
 # clone. Ship releases as release assets instead — see .github/workflows/release.yml.
 dist/
+dist-ffmpeg/
 publish/
 *.publish/
 
