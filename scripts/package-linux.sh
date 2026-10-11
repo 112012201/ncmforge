@@ -210,7 +210,6 @@ Summary:        $SUMMARY
 License:        GPL-3.0-or-later
 URL:            https://github.com/112012201/ncmforge
 Source0:        ncmforge-$VERSION.tar.gz
-BuildArch:      $RPM_ARCH
 AutoReqProv:    no
 
 %description
@@ -248,14 +247,18 @@ cp %{buildroot}/usr/lib/ncmforge/THIRD-PARTY-NOTICES.md %{buildroot}/usr/share/d
 EOF
 
   echo "==> ncmforge-$RPM_VERSION-1.$RPM_ARCH.rpm"
-  # --target is required, not cosmetic: the spec declares BuildArch, and rpmbuild on a foreign host
-  # otherwise stops with "No compatible architectures found for build". Cross-building a pure-data
-  # package this way is supported; only compiling one would need a real toolchain.
+  # The package architecture is taken from _target_cpu, and BuildArch is deliberately ABSENT from
+  # the spec above. A BuildArch field makes rpmbuild first ask whether the host is able to build
+  # that architecture, which for aarch64 on an x86_64 runner is false, and it then aborts with
+  # "No compatible architectures found for build" even when --target is supplied. This package only
+  # repackages already-published output, so there is no compilation step for that check to guard.
   #
   # A failure here is reported but not fatal: one architecture's rpm is not worth denying everyone
-  # the deb, the snap and the tarball for.
+  # the deb, the snap and the tarball.
   if rpmbuild --define "_topdir $RPM_TOP" \
               --define "_binary_payload w2.xzdio" \
+              --define "_target_cpu $RPM_ARCH" \
+              --define "_target_os linux" \
               --target "$RPM_ARCH" \
               -bb "$RPM_TOP/SPECS/ncmforge.spec" > "$STAGE/rpm-$ARCH.log" 2>&1; then
     find "$RPM_TOP/RPMS" -name '*.rpm' -exec cp {} "$OUT_DIR/" \;
