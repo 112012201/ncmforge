@@ -36,6 +36,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Windows PowerShell 5.1 still negotiates TLS 1.0 by default, which GitHub refuses. Harmless on
+# newer hosts and essential on older ones.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 if (-not $Token) { throw 'no token supplied: pass -Token or set GITHUB_TOKEN' }
 if (-not (Test-Path $FfmpegDir)) { throw "ffmpeg folder not found: $FfmpegDir" }
 
@@ -113,16 +117,47 @@ if ($existing) {
 }
 
 Write-Host "uploading $assetName ..."
-$uploadHeaders = $headers.Clone()
-$uploadHeaders['Content-Type'] = 'application/zip'
 
-$uploaded = Invoke-RestMethod `
-    -Method Post `
-    -Uri "https://uploads.github.com/repos/$Owner/$Repository/releases/$($release.id)/assets?name=$assetName" `
-    -Headers $uploadHeaders `
-    -InFile $zipPath
+$uploadUrl = "https://uploads.github.com/repos/$Owner/$Repository/releases/$($release.id)/assets?name=$assetName"
 
-Write-Host ("  done: {0} ({1:N1} MB)" -f $uploaded.browser_download_url, ($uploaded.size / 1MB))
+# curl rather than Invoke-RestMethod: a ~95 MB body over PowerShell 5.1's HTTP stack dies partway
+# with "The underlying connection was closed", while curl streams it with its own retries. The
+# Invoke-RestMethod path stays as a fallback for hosts without curl.
+$curl = (Get-Command curl.exe -ErrorAction SilentlyContinue).Source
+
+if ($curl) {
+    $responseFile = Join-Path $WorkDir 'upload-response.json'
+    $status = & $curl -sS --retry 3 --retry-delay 5 --retry-connrefused `
+        -X POST `
+        -H "Authorization: Bearer $Token" `
+        -H "Accept: application/vnd.github+json" `
+        -H "Content-Type: application/zip" `
+        -H 'User-Agent: NcmForge-upload-ffmpeg' `
+        --data-binary "@$zipPath" `
+        -o $responseFile `
+        -w '%{http_code}' `
+        $uploadUrl
+
+    if ($status -ne '201') {
+        $detail = if (Test-Path $responseFile) { Get-Content $responseFile -Raw } else { '' }
+        throw "upload failed with HTTP $status`n$detail"
+    }
+
+    $uploaded = Get-Content $responseFile -Raw | ConvertFrom-Json
+}
+else {
+    Write-Host '  (curl not found; falling back to Invoke-RestMethod)'
+    $uploadHeaders = $headers.Clone()
+    $uploadHeaders['Content-Type'] = 'application/zip'
+
+    $uploaded = Invoke-RestMethod `
+        -Method Post `
+        -Uri $uploadUrl `
+        -Headers $uploadHeaders `
+        -InFile $zipPath
+}
+
+Write-Host ("  done: {0:N1} MB" -f ($uploaded.size / 1MB))
 Write-Host ("  url : {0}" -f $uploaded.browser_download_url)
 
 # --- optionally publish to GitHub Packages ----------------------------------
