@@ -1,0 +1,253 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:NcmForge.App.ViewModels"
+        x:Class="NcmForge.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="NcmForge — 网易云音乐 NCM 转换器"
+        Icon="/Assets/ncmforge.png"
+        Width="1060" Height="720"
+        MinWidth="880" MinHeight="600"
+        DragDrop.AllowDrop="True"
+        Background="#12151C">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="#8FA3BF" />
+      <Setter Property="Margin" Value="0,14,0,6" />
+    </Style>
+    <Style Selector="TextBlock.hint">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="#6B7A90" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Margin" Value="0,3,0,0" />
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="#1A1F29" />
+      <Setter Property="BorderBrush" Value="#252C39" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="14" />
+    </Style>
+    <Style Selector="ProgressBar">
+      <Setter Property="Height" Value="4" />
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="16">
+
+    <!-- header -->
+    <StackPanel Grid.Row="0" Margin="0,0,0,12">
+      <TextBlock Text="NcmForge" FontSize="24" FontWeight="Bold" Foreground="#E8EEF7" />
+      <TextBlock Classes="hint"
+                 Text="NCM 解密 · MP3 / FLAC 转码 · 网易云与封面数据库取图 · 沉浸声（AVS3-P3 / Audio Vivid）无损提取" />
+    </StackPanel>
+
+    <!-- main -->
+    <Grid Grid.Row="1" ColumnDefinitions="*,380" >
+
+      <!-- queue -->
+      <Border Grid.Column="0" Classes="card" Margin="0,0,12,0">
+        <Grid RowDefinitions="Auto,*">
+          <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+            <Button Content="添加文件" Command="{Binding AddFilesCommand}" />
+            <Button Content="添加文件夹" Command="{Binding AddFolderCommand}" />
+            <Button Content="移除选中" Command="{Binding RemoveSelectedCommand}" />
+            <Button Content="清空" Command="{Binding ClearCommand}" />
+          </StackPanel>
+
+          <ListBox Grid.Row="1"
+                   ItemsSource="{Binding Tracks}"
+                   Background="Transparent"
+                   BorderThickness="0">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:TrackItem">
+                <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4">
+                  <CheckBox Grid.Column="0"
+                            IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                            VerticalAlignment="Center" />
+                  <StackPanel Grid.Column="1" Margin="6,0,10,0" Spacing="2">
+                    <TextBlock Text="{Binding FileName}" Foreground="#DCE5F2" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Detail}" Classes="hint" />
+                    <ProgressBar Value="{Binding Progress}" Maximum="100"
+                                 IsVisible="{Binding Progress}" Foreground="#4C8DF6" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" HorizontalAlignment="Right" Spacing="2">
+                    <TextBlock Text="{Binding Status}" Foreground="#8FA3BF" FontSize="11" HorizontalAlignment="Right" />
+                    <TextBlock Text="{Binding FileSizeDisplay}" Classes="hint" HorizontalAlignment="Right" />
+                  </StackPanel>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+      </Border>
+
+      <!-- settings -->
+      <Border Grid.Column="1" Classes="card">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel>
+
+            <TextBlock Classes="section" Text="输出格式" Margin="0,0,0,6" />
+            <ComboBox ItemsSource="{Binding Formats}"
+                      SelectedItem="{Binding SelectedFormat, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:FormatChoice">
+                  <TextBlock Text="{Binding Label}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock Classes="section" Text="重新编码" />
+            <CheckBox Content="启用重新编码（强制转码，可换成播放器都能解的编码）"
+                      IsChecked="{Binding Reencode, Mode=TwoWay}" />
+            <TextBlock Classes="hint"
+                       Text="关闭时：负载已是目标编码就直接重封装，音频比特不变。开启后可用下面的硬件加速选项。" />
+
+            <StackPanel IsVisible="{Binding Reencode}">
+              <TextBlock Classes="section" Text="硬件加速（开启重新编码后可用）" />
+              <ComboBox ItemsSource="{Binding HardwareModes}"
+                        SelectedItem="{Binding SelectedHardware, Mode=TwoWay}"
+                        HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:HardwareChoice">
+                    <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock Classes="hint" Text="{Binding HardwareHint}" />
+              <TextBlock Classes="hint" Text="{Binding HardwareSummary}" />
+            </StackPanel>
+
+            <TextBlock Classes="section" Text="多声道处理" />
+            <ComboBox ItemsSource="{Binding Surrounds}"
+                      SelectedItem="{Binding SelectedSurround, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:SurroundChoice">
+                  <TextBlock Text="{Binding Label}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Classes="hint"
+                       Text="FLAC 规范上限为 8 声道。12 声道的沉浸声请选择 7.1/5.1 降混，或改用「原样无损提取」保留全部声道。" />
+
+            <TextBlock Classes="section" Text="封面来源" />
+            <ComboBox ItemsSource="{Binding Covers}"
+                      SelectedItem="{Binding SelectedCover, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:CoverChoice">
+                  <TextBlock Text="{Binding Label}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock Classes="section" Text="歌词" />
+            <ComboBox ItemsSource="{Binding LyricsModes}"
+                      SelectedItem="{Binding SelectedLyrics, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:LyricsChoice">
+                  <TextBlock Text="{Binding Label}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Classes="hint"
+                       Text="读取与 .ncm 同名的 .lrc（支持网易云 JSON 混合格式与 GBK 编码），写入 MP3 的 USLT 帧或 FLAC 的 LYRICS 注释。" />
+
+            <StackPanel IsVisible="{Binding ShowBitrate}">
+              <TextBlock Classes="section" Text="有损码率（MP3 / AAC）" />
+              <Grid ColumnDefinitions="*,Auto">
+                <Slider Grid.Column="0" Minimum="96" Maximum="320" TickFrequency="32"
+                        IsSnapToTickEnabled="True" Value="{Binding Bitrate, Mode=TwoWay}" />
+                <TextBlock Grid.Column="1" Text="{Binding Bitrate}" Foreground="#8FA3BF"
+                           VerticalAlignment="Center" Margin="8,0,0,0" />
+              </Grid>
+            </StackPanel>
+
+            <StackPanel IsVisible="{Binding IsFlacSelected}">
+              <TextBlock Classes="section" Text="FLAC 压缩级别（0 最快，12 最小）" />
+              <Grid ColumnDefinitions="*,Auto">
+                <Slider Grid.Column="0" Minimum="0" Maximum="12" TickFrequency="1"
+                        IsSnapToTickEnabled="True" Value="{Binding FlacLevel, Mode=TwoWay}" />
+                <TextBlock Grid.Column="1" Text="{Binding FlacLevel}" Foreground="#8FA3BF"
+                           VerticalAlignment="Center" Margin="8,0,0,0" />
+              </Grid>
+            </StackPanel>
+
+            <TextBlock Classes="section" Text="输出目录" />
+            <TextBox Text="{Binding OutputDirectory, Mode=TwoWay}" Watermark="留空则输出到源文件旁" />
+
+            <TextBlock Classes="section" Text="ffmpeg 路径" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Grid.Column="0" Text="{Binding FfmpegPath, Mode=TwoWay}" Watermark="留空自动从 PATH 查找" />
+              <Button Grid.Column="1" Content="检测" Command="{Binding DetectFfmpegCommand}" Margin="8,0,0,0" />
+            </Grid>
+            <TextBlock Classes="hint" Text="MP3/FLAC/AAC/AC-3/E-AC-3 的解码与转码都由 ffmpeg 完成。" />
+
+            <TextBlock Classes="section" Text="外部解码器（AVS3-P3 / Audio Vivid）" />
+            <TextBox Text="{Binding ExternalDecoderCommand, Mode=TwoWay}"
+                     Watermark="例如：python av3a_decoder.py &quot;{input}&quot; &quot;{output}&quot;" />
+            <TextBlock Classes="hint"
+                       Text="占位符：{input} {output} {channels} {sampleRate}。命令必须输出 WAV，之后再由 ffmpeg 编码为 MP3/FLAC。未配置时沉浸声曲目会原样无损提取。" />
+
+            <TextBlock Classes="section" Text="解码器输入" />
+            <ComboBox ItemsSource="{Binding DecoderInputs}"
+                      SelectedItem="{Binding SelectedDecoderInput, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:DecoderInputChoice">
+                  <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <TextBlock Classes="section" Text="其它选项" />
+            <CheckBox Content="提取裸基本流（.av3a 等）而非原始容器"
+                      IsChecked="{Binding ExtractElementaryStream, Mode=TwoWay}" />
+            <CheckBox Content="保留临时文件（排查问题用）"
+                      IsChecked="{Binding KeepTemporaryFiles, Mode=TwoWay}" />
+
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Grid>
+
+    <!-- log -->
+    <Border Grid.Row="2" Classes="card" Margin="0,12,0,0" Height="150">
+      <Grid RowDefinitions="Auto,*">
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+          <TextBlock Grid.Column="0" Classes="section" Text="日志" Margin="0,0,0,4" />
+          <Button Grid.Column="1" Content="复制" Padding="10,2" Command="{Binding CopyLogCommand}" />
+        </Grid>
+        <ListBox Grid.Row="1" ItemsSource="{Binding Log}" Background="Transparent" BorderThickness="0">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Text="{Binding}" FontFamily="Consolas,Menlo,monospace" FontSize="11"
+                         Foreground="#9FB2C9" TextWrapping="Wrap" />
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Grid>
+    </Border>
+
+    <!-- footer -->
+    <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,12,0,0">
+      <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="6">
+        <TextBlock Text="{Binding StatusText}" Foreground="#DCE5F2" TextTrimming="CharacterEllipsis" />
+        <TextBlock Text="{Binding WarningText}" IsVisible="{Binding HasWarning}"
+                   Foreground="#F0B429" FontSize="12" TextWrapping="Wrap" />
+        <ProgressBar Value="{Binding Progress}" Maximum="100" Foreground="#4C8DF6" />
+      </StackPanel>
+      <Button Grid.Column="1" Content="打开输出目录" Command="{Binding OpenOutputCommand}" Margin="12,0,0,0" />
+      <Button Grid.Column="2" Content="取消" Command="{Binding CancelCommand}" Margin="8,0,0,0"
+              IsVisible="{Binding IsBusy}" />
+      <Button Grid.Column="3" Content="开始转换" Command="{Binding ConvertCommand}" Margin="8,0,0,0"
+              Classes="accent" />
+    </Grid>
+
+  </Grid>
+</Window>

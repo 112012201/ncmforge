@@ -1,0 +1,130 @@
+name: Release
+
+# Triggered by pushing a tag such as v1.0.0.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (for a manual run)'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  release:
+    name: Publish ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            archive: NcmForge-${{ github.ref_name }}-win-x64.zip
+          - os: ubuntu-latest
+            rid: linux-x64
+            archive: NcmForge-${{ github.ref_name }}-linux-x64.tar.gz
+          - os: macos-latest
+            rid: osx-arm64
+            archive: NcmForge-${{ github.ref_name }}-osx-arm64.tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Test
+        run: dotnet test NcmForge.sln -c Release
+
+      # No ffmpeg is bundled here on purpose. It is a third-party GPLv3 build of roughly 110 MB;
+      # shipping it from CI would mean redistributing a binary this repository cannot offer
+      # matching source for. The release notes explain how to add one for Audio Vivid support.
+      - name: Publish GUI
+        run: >
+          dotnet publish src/NcmForge.App/NcmForge.App.csproj
+          -c Release -r ${{ matrix.rid }} --self-contained true
+          -p:DebugType=none
+          -o publish/gui
+
+      - name: Publish CLI
+        run: >
+          dotnet publish src/NcmForge.Cli/NcmForge.Cli.csproj
+          -c Release -r ${{ matrix.rid }} --self-contained true
+          -p:DebugType=none
+          -o publish/cli
+
+      - name: Add licence and notices to the archives
+        shell: bash
+        run: |
+          for target in publish/gui publish/cli; do
+            cp LICENSE "$target/LICENSE"
+            cp DISCLAIMER.md "$target/DISCLAIMER.md"
+            cp THIRD-PARTY-NOTICES.md "$target/THIRD-PARTY-NOTICES.md"
+            # The directory the app probes for a user-supplied ffmpeg.
+            mkdir -p "$target/tools/ffmpeg"
+            cat > "$target/tools/ffmpeg/README.md" <<'EOF'
+# Put an ffmpeg here for Audio Vivid support
+
+NcmForge looks for `ffmpeg` in this folder before it looks on PATH.
+
+Mainstream ffmpeg builds cannot decode AVS3-P3 / Audio Vivid (the codec NetEase calls 沉浸声 /
+菁彩声). To convert those files you need a build containing the `av3a` decoder — run
+`ncmforge doctor` and look for a line reading `yes  av3a`.
+
+Without one, everything else still works: those files are copied losslessly instead of converted.
+EOF
+          done
+
+      - name: Archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path publish/gui/* -DestinationPath "${{ matrix.archive }}"
+          Compress-Archive -Path publish/cli/* -DestinationPath "NcmForge-CLI-${{ github.ref_name }}-win-x64.zip"
+
+      - name: Archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          tar -czf "${{ matrix.archive }}" -C publish/gui .
+          tar -czf "NcmForge-CLI-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz" -C publish/cli .
+
+      - name: Upload to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.archive }}
+            NcmForge-CLI-${{ github.ref_name }}-${{ matrix.rid }}.*
+          draft: true
+          body: |
+            ## NcmForge ${{ github.ref_name }}
+
+            自包含发布包，**目标机器无需安装 .NET**。解压后直接运行：
+
+            - `NcmForge.exe`（Windows）/ `NcmForge`（Linux、macOS）— 图形界面
+            - `ncmforge` — 命令行
+
+            ### 关于 Audio Vivid（沉浸声 / 菁彩声）
+
+            本发布包**不包含 ffmpeg**。主流 ffmpeg 构建无法解码 AVS3-P3 / Audio Vivid，
+            因此沉浸声文件会被**无损提取**而不是转码。
+
+            要转换它们，请把一个带 `av3a` 解码器的 ffmpeg 放进 `tools/ffmpeg/`，
+            然后用 `ncmforge doctor` 确认出现 `yes  av3a`。
+
+            ### 许可证
+
+            NcmForge 以 GPL-3.0-or-later 发布。使用前请阅读 `DISCLAIMER.md`（免责声明）
+            与 `THIRD-PARTY-NOTICES.md`（第三方组件）。本软件仅用于个人对自己合法拥有的
+            文件做格式转换。

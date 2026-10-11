@@ -1,0 +1,23 @@
+# Normalise line endings so the repository does not churn on Windows-vs-Unix checkouts.
+* text=auto eol=lf
+
+# Windows-specific scripts stay CRLF so they run under Windows PowerShell without surprises.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.sln text eol=crlf
+
+# Binary assets: never diff, never normalise. The icon's bytes matter.
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+
+# Generated code and lock files are still worth reviewing, but not worth a language guess.
+*.json text
+*.props text
+*.targets text
+
+# Keep these out of GitHub's language statistics: the repository is C#, not HTML or CSS.
+*.axaml linguist-language=C#
+docs/** linguist-documentation

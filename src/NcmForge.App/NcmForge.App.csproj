@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>NcmForge.App</RootNamespace>
+    <AssemblyName>NcmForge</AssemblyName>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- The Windows shell icon on the executable itself. -->
+    <ApplicationIcon>Assets\ncmforge.ico</ApplicationIcon>
+
+    <!-- Compiled bindings turn a typo in a binding path into a build error, which matters for a
+         UI that must be correct without being clicked through by hand. -->
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Held as Avalonia resources so both the window icon and the executable icon travel with
+         the app in every publish layout. -->
+    <AvaloniaResource Include="Assets\ncmforge.ico" />
+    <AvaloniaResource Include="Assets\ncmforge.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.22" Condition="'$(Configuration)' == 'Debug'" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NcmForge.Core\NcmForge.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,24 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Deterministic>true</Deterministic>
+
+    <Version>1.0.0</Version>
+    <Product>NcmForge</Product>
+    <AssemblyTitle>NcmForge</AssemblyTitle>
+    <Description>网易云音乐 NCM 转换器：解密 .ncm 容器并输出带标签的 MP3 / FLAC / MP4 / Matroska，支持 AVS3-P3（Audio Vivid）沉浸声。</Description>
+    <Authors>NcmForge contributors</Authors>
+    <Copyright>Copyright (C) 2026 NcmForge contributors</Copyright>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+
+    <!-- REPLACE "OWNER" with the GitHub account that will host the repository. It is the only
+         place the account name appears in build output, so changing it here is enough. -->
+    <RepositoryUrl>https://github.com/OWNER/ncmforge</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+</Project>
