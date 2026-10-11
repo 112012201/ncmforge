@@ -34,13 +34,8 @@ public sealed class MainViewModel : ObservableObject
     {
         _pipeline = new ConversionPipeline(_http);
 
-        Formats =
-        [
-            new FormatChoice("MP3（无损转码 / 直接重封装）", OutputFormat.Mp3),
-            new FormatChoice("FLAC（多声道无损，最多 8 声道）", OutputFormat.Flac),
-            new FormatChoice("自动兼容（同级编码，优先通用播放器可解）", OutputFormat.Compatible),
-            new FormatChoice("原样无损提取（保留原始容器与声道）", OutputFormat.LosslessCopy),
-        ];
+        // One shared list, so the window, the CLI and the tests cannot drift apart.
+        Formats = [.. FormatCatalog.All.Select(o => new FormatChoice(o.Label, o.Format, o.CodecKey))];
 
         Surrounds =
         [
@@ -561,10 +556,13 @@ public sealed class MainViewModel : ObservableObject
     private ConversionOptions BuildOptions() => new()
     {
         Format = SelectedFormat.Value,
+        // A named codec overrides the mode entirely and implies re-encoding, so the checkbox does
+        // not need to be understood as well as the format in front of it.
+        TargetCodec = SelectedFormat.CodecKey,
         Surround = SelectedSurround.Value,
         Cover = SelectedCover.Value,
         Lyrics = SelectedLyrics.Value,
-        ForceReencode = Reencode,
+        ForceReencode = Reencode || SelectedFormat.CodecKey is not null,
         Hardware = Reencode ? SelectedHardware.Value : HardwareAcceleration.Disabled,
         BitrateKbps = Bitrate,
         FlacCompressionLevel = FlacLevel,

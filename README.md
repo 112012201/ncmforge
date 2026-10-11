@@ -171,9 +171,42 @@ ncmforge convert immersive.ncm --format flac --surround 71 \
 
 ---
 
+## 选择输出格式
+
+输出格式下拉框里可以直接指定编码，也可以交给「自动兼容」逐档尝试。每一项都写明了它的
+**有无损、最多多少声道、哪些播放器能放**：
+
+| 格式 | `--format` | 类型 | 实测最多声道 | 兼容性 |
+|---|---|---|---|---|
+| **WavPack** | `wavpack` | 无损 | **64** | foobar2000 / VLC / mpv；系统自带播放器大多不行 |
+| Dolby TrueHD | `truehd` | 无损 | 6 | VLC / PotPlayer / mpv；Windows Media Player 不支持 |
+| E-AC-3 (DD+) | `eac3` | 有损 | 6 | 电视、功放与主流播放器广泛支持 |
+| DTS | `dts` | 有损 | 6 | 家庭影院设备与 VLC / PotPlayer |
+| FLAC | `flac` | 无损 | 8 | 全平台通用 |
+| ALAC | `alac` | 无损 | 8 | Apple 生态原生；Windows Media Player 不支持 |
+| Opus | `opus` | 有损 | 8 | 现代浏览器与移动端；老硬件播放器不支持 |
+| AAC-LC (MP4) | `aac` | 有损 | 6 | 兼容性最好：Windows、移动端、各播放器通吃 |
+| MP3 | `mp3` | 有损 | 2 | 所有播放器都支持 |
+
+```bash
+ncmforge convert song.ncm --format wavpack   # 12 声道原样保留，不降混
+ncmforge convert song.ncm --format alac      # 8 声道，Apple 生态
+ncmforge convert song.ncm --format auto      # 交给降级梯自己选
+```
+
+> **声道数是实测值，不是格式规范的上限。** 两者差距很大：WavPack 的容器规范允许 256 声道，
+> 而 ffmpeg 的编码器实测停在 64；TrueHD 规范允许 16，编码器停在 6。上面写的是**这个工具实际
+> 能交付的数字**，因为那才是选格式时需要的。若某个格式的上限达到或超过 255，界面上会按 255 显示。
+
+点 `wavpack`、`flac` 这类明确的编码即表示要重新编码，不必再去勾「启用重新编码」。
+而下拉框里的 `MP3` / `FLAC` 两个**模式**不同：负载已经是该格式时它们只做重封装，不会无谓地
+二次有损压缩。
+
+---
+
 ## 编码降级梯
 
-开启「重新编码」后，按下列顺序逐档尝试，**失败一档降一档**，全部失败才会报错。
+选择「自动兼容」并开启「重新编码」后，按下列顺序逐档尝试，**失败一档降一档**，全部失败才会报错。
 每一档的可用性都是**实测探测**本机 ffmpeg 得出的，而不是写死的。
 
 ```
@@ -185,7 +218,7 @@ WavPack → Dolby TrueHD → E-AC-3 (DD+) → DTS → FLAC → ALAC → Opus →
 
 | 编码 | 实测声道上限 | 说明 |
 |---|---|---|
-| **WavPack** | **16+** | 唯一能完整承载 12 声道（7.1.4）的选择 |
+| **WavPack** | **64** | 唯一能完整承载 12 声道（7.1.4）的选择 |
 | Dolby TrueHD | 6 | ffmpeg 的 TrueHD 编码器超过 6 声道**直接报错** |
 | E-AC-3 (DD+) | 6 | ffmpeg **无法**写入 Atmos 对象元数据，所以输出是 DD+ 而非真 Atmos |
 | DTS | 6 | ffmpeg **没有** DTS-HD MA 编码器，`dca` 产出的是有损 DTS 核心 |

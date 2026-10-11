@@ -27,15 +27,33 @@ internal static class ConvertCommand
             switch (arg)
             {
                 case "--format":
-                    options.Format = (Next() ?? string.Empty).ToLowerInvariant() switch
+                {
+                    string format = (Next() ?? string.Empty).ToLowerInvariant();
+
+                    // Accepts both the high-level modes and any codec from the catalogue, so
+                    // "--format wavpack" names that encoder exactly instead of walking the ladder.
+                    if (CodecLadder.IsCodecKey(format))
+                    {
+                        options.TargetCodec = CodecLadder.Find(format)!.Key;
+                        options.Format = OutputFormat.Compatible;
+
+                        // Naming a codec is itself the request to re-encode.
+                        options.ForceReencode = true;
+                        break;
+                    }
+
+                    options.TargetCodec = null;
+                    options.Format = format switch
                     {
                         "mp3" => OutputFormat.Mp3,
                         "flac" => OutputFormat.Flac,
                         "auto" or "compatible" => OutputFormat.Compatible,
                         "copy" or "lossless" => OutputFormat.LosslessCopy,
-                        var other => throw new ArgumentException($"unknown format '{other}'"),
+                        var other => throw new ArgumentException(
+                            $"unknown format '{other}'; use mp3, flac, auto, copy, or one of: {string.Join(", ", CodecLadder.Rungs.Select(r => r.Key))}"),
                     };
                     break;
+                }
 
                 case "--surround":
                     options.Surround = (Next() ?? string.Empty).ToLowerInvariant() switch
@@ -232,7 +250,13 @@ internal static class ConvertCommand
         var text = new StringBuilder();
         text.AppendLine("usage: ncmforge convert <file.ncm | directory> [options]");
         text.AppendLine();
-        text.AppendLine("  --format <mp3|flac|auto|copy> target (default mp3); auto picks a widely playable codec");
+        text.AppendLine("  --format <name>     output format (default mp3). Codes:");
+        text.AppendLine("                        auto | compatible   walk the fallback ladder and pick for you");
+        text.AppendLine("                        copy | lossless     keep the original audio bit-exact");
+        foreach (EncodeTarget rung in CodecLadder.Rungs)
+        {
+            text.AppendLine($"                        {rung.Key,-14} {CodecLadder.Describe(rung)}");
+        }
         text.AppendLine("  --reencode                   re-encode even when the payload could be remuxed");
         text.AppendLine("  --hw <auto|off|mf|nvenc|nvcuda|qsv|amf|vaapi|videotoolbox|mediacodec|v4l2>");
         text.AppendLine("                               encoder family to prefer (only used with --reencode)");

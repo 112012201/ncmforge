@@ -63,9 +63,33 @@ public sealed class ConversionPipeline
             return new ConversionPlan("remux", ".flac", "payload is already FLAC; audio copied verbatim");
         }
 
+        // An explicit codec choice takes precedence over everything below: the user named a format,
+        // so encode with exactly that one rather than walking the ladder or inferring a target.
+        FfmpegTool? probe = FfmpegTool.Locate(options.FfmpegPath);
+
+        if (options.TargetCodec is { } requestedCodec)
+        {
+            EncodeTarget? rung = CodecLadder.Find(requestedCodec)
+                ?? throw new ConversionException($"Unknown output codec: {requestedCodec}");
+
+            IReadOnlyList<EncodeTarget> chosen = CodecLadder.For(channelCount, options.BitrateKbps, probe, rung.Key);
+
+            if (chosen.Count == 0)
+            {
+                throw new ConversionException(
+                    $"This ffmpeg build has no {rung.Label} encoder ({rung.Encoder}), so it cannot be the output format.");
+            }
+
+            string detail = CodecLadder.NeedsWarning(rung, channelCount, fellBack: false)
+                ? $"encode with {rung.Label} ({CodecLadder.DescribeDegradation(rung, channelCount, 0)})"
+                : $"encode with {rung.Label}";
+
+            return new ConversionPlan("ladder", rung.Extension, detail);
+        }
+
         if (options.Format == OutputFormat.Compatible && options.ForceReencode)
         {
-            IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(channelCount, options.BitrateKbps, FfmpegTool.Locate(options.FfmpegPath));
+            IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(channelCount, options.BitrateKbps, probe);
             if (ladder.Count > 0)
             {
                 return new ConversionPlan(
@@ -487,13 +511,16 @@ public sealed class ConversionPipeline
                 .ConfigureAwait(false);
         }
 
-        IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(channelCount, options.BitrateKbps, ffmpeg);
+        IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(channelCount, options.BitrateKbps, ffmpeg, options.TargetCodec);
         if (ladder.Count == 0)
         {
             throw new ConversionException("This ffmpeg build provides none of the encoders the fallback ladder needs.");
         }
 
-        log?.Invoke($"ladder    : {string.Join(" → ", ladder.Select(r => r.Label))}");
+        // An explicit choice of one codec reads as a decision, not as a ladder to walk.
+        log?.Invoke(options.TargetCodec is null
+            ? $"ladder    : {string.Join(" → ", ladder.Select(r => r.Label))}"
+            : $"encoder   : {ladder[0].Label}（已指定输出格式）");
 
         string? coverPath = null;
         if (options.Cover != CoverMode.None && tags.Cover is { } cover)
@@ -591,9 +618,12 @@ public sealed class ConversionPipeline
             log?.Invoke($"failed    : {rung.Label} — {reason}");
         }
 
-        throw new ConversionException(
-            "所有候选编码都失败了：" + Environment.NewLine +
-            string.Join(Environment.NewLine, failures.Select(f => "  • " + f)));
+        // One named codec is a choice the user made, so report it as that codec failing rather than
+        // as a ladder having run out of rungs.
+        throw new ConversionException(options.TargetCodec is null
+            ? "所有候选编码都失败了：" + Environment.NewLine +
+              string.Join(Environment.NewLine, failures.Select(f => "  • " + f))
+            : $"指定的输出格式编码失败：{Environment.NewLine}  • {failures[0]}");
     }
 
     /// <summary>Moves the successful rung's output into place, writing tags where we can.</summary>

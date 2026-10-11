@@ -85,6 +85,16 @@ public sealed class ConversionOptions
     public OutputFormat Format { get; set; } = OutputFormat.Mp3;
 
     /// <summary>
+    /// A specific codec to encode with, named by <see cref="CodecLadder"/>'s key.
+    /// </summary>
+    /// <remarks>
+    /// When set, this wins over <see cref="Format"/>: the conversion encodes with exactly that codec
+    /// instead of walking the fallback ladder, and <see cref="ForceReencode"/> is implied because
+    /// naming a codec is itself the request to re-encode. Null means "let the tool choose".
+    /// </remarks>
+    public string? TargetCodec { get; set; }
+
+    /// <summary>
     /// Re-encode even when the payload could simply be remuxed.
     /// </summary>
     /// <remarks>

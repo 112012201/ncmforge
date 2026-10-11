@@ -2,8 +2,14 @@ using NcmForge.Core.Pipeline;
 
 namespace NcmForge.App.ViewModels;
 
-/// <summary>A labelled enum choice for the settings combo boxes.</summary>
-public sealed record FormatChoice(string Label, OutputFormat Value);
+/// <summary>
+/// A labelled format choice for the output-format combo box.
+/// </summary>
+/// <param name="CodecKey">
+/// Set when the entry names one specific codec from <see cref="CodecLadder"/>; null for the
+/// higher-level modes such as "automatic" or "copy".
+/// </param>
+public sealed record FormatChoice(string Label, OutputFormat Value, string? CodecKey = null);
 
 public sealed record SurroundChoice(string Label, SurroundMapping Value);
 
