@@ -27,6 +27,13 @@ param(
     # A fine-grained PAT, or $env:GITHUB_TOKEN.
     [string] $Token = $env:GITHUB_TOKEN,
 
+    # Proxy for the upload, e.g. http://127.0.0.1:7897. Defaults to whatever HTTPS_PROXY holds.
+    #
+    # uploads.github.com is the only host GitHub takes release assets on, and on some networks it is
+    # unreachable directly while being perfectly reachable through a local proxy. curl reads
+    # http_proxy/https_proxy on its own, but naming it here keeps the intent explicit.
+    [string] $Proxy = $env:HTTPS_PROXY,
+
     # Also publish to ghcr.io. Needs the `oras` CLI and a token with Packages: Write.
     [switch] $Packages,
 
@@ -127,16 +134,30 @@ $curl = (Get-Command curl.exe -ErrorAction SilentlyContinue).Source
 
 if ($curl) {
     $responseFile = Join-Path $WorkDir 'upload-response.json'
-    $status = & $curl -sS --retry 3 --retry-delay 5 --retry-connrefused `
-        -X POST `
-        -H "Authorization: Bearer $Token" `
-        -H "Accept: application/vnd.github+json" `
-        -H "Content-Type: application/zip" `
-        -H 'User-Agent: NcmForge-upload-ffmpeg' `
-        --data-binary "@$zipPath" `
-        -o $responseFile `
-        -w '%{http_code}' `
-        $uploadUrl
+
+    $curlArguments = @(
+        '-sS'
+        '--retry', '3'
+        '--retry-delay', '5'
+        '--retry-connrefused'
+        '-X', 'POST'
+        '-H', "Authorization: Bearer $Token"
+        '-H', 'Accept: application/vnd.github+json'
+        '-H', 'Content-Type: application/zip'
+        '-H', 'User-Agent: NcmForge-upload-ffmpeg'
+        '--data-binary', "@$zipPath"
+        '-o', $responseFile
+        '-w', '%{http_code}'
+    )
+
+    if ($Proxy) {
+        Write-Host "  via proxy $Proxy"
+        $curlArguments += @('--proxy', $Proxy)
+    }
+
+    $curlArguments += $uploadUrl
+
+    $status = & $curl @curlArguments
 
     if ($status -ne '201') {
         $detail = if (Test-Path $responseFile) { Get-Content $responseFile -Raw } else { '' }
