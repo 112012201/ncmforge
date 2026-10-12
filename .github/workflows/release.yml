@@ -145,9 +145,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, rid: win-x64,    platform: win,    format: zip }
-          - { os: windows-latest, rid: win-x86,    platform: win,    format: zip }
-          - { os: windows-latest, rid: win-arm64,  platform: win,    format: zip }
+          # arch drives the installer's AppId, architecture directives and file names, so it is
+          # stated explicitly rather than derived from the rid.
+          - { os: windows-latest, rid: win-x64,    platform: win,    format: zip,    arch: x64 }
+          - { os: windows-latest, rid: win-x86,    platform: win,    format: zip,    arch: x86 }
+          - { os: windows-latest, rid: win-arm64,  platform: win,    format: zip,    arch: arm64 }
           - { os: macos-latest,   rid: osx-x64,    platform: macos,  format: tar.gz }
           - { os: macos-latest,   rid: osx-arm64,  platform: macos,  format: tar.gz }
           - { os: ubuntu-latest,  rid: linux-x64,  platform: linux,  format: tar.gz }
