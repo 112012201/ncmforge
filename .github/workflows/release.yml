@@ -230,6 +230,38 @@ jobs:
           # NcmForge-ffmpeg-av3a-win-x64.zip
           EOF
 
+      # Signing happens before packaging: a zip preserves the bytes, but signing after archiving
+      # would cover the archive rather than the program a user's SmartScreen actually inspects.
+      #
+      # Skipped cleanly when no certificate is configured, so forks and pull requests still build.
+      # Set WINDOWS_CERT_PFX_BASE64 (a base64 .pfx) plus WINDOWS_CERT_PASSWORD to enable it. To sign
+      # through Certum's SimplySign instead, install it on a self-hosted runner and pass the
+      # certificate's thumbprint in WINDOWS_CERT_THUMBPRINT.
+      - name: Sign the Windows binaries
+        if: matrix.platform == 'win'
+        shell: pwsh
+        env:
+          CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          CERT_THUMBPRINT: ${{ secrets.WINDOWS_CERT_THUMBPRINT }}
+        run: |
+          $signArgs = @{ Path = @('stage/NcmForge.exe', 'stage/cli/ncmforge.exe') }
+
+          if ($env:CERT_PFX_BASE64) {
+            $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX_BASE64))
+            $signArgs.PfxPath = $pfx
+            $signArgs.PfxPassword = $env:CERT_PASSWORD
+          }
+          elseif ($env:CERT_THUMBPRINT) {
+            $signArgs.Thumbprint = $env:CERT_THUMBPRINT
+          }
+          else {
+            Write-Host 'No code-signing certificate is configured; the build will be unsigned.'
+          }
+
+          ./scripts/sign-windows.ps1 @signArgs
+
       - name: Archive (Windows)
         if: matrix.format == 'zip'
         shell: pwsh

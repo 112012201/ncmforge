@@ -95,12 +95,48 @@ public sealed class CodecLadderTests
     }
 
     [Fact]
-    public void WavPackIsTheOnlyRungThatCanCarryAFullImmersiveMix()
+    public void WavPackIsTheOnlyCompressedRungThatCanCarryAFullImmersiveMix()
     {
         // This is why the ladder does not simply stop at its first rung for a 12-channel source.
-        var capable = CodecLadder.Rungs.Where(r => r.MaxChannels >= 12).Select(r => r.Label).ToList();
+        // The PCM entries also qualify on channel count, but they are not ladder rungs — see
+        // UncompressedFormatsAreNeverFallenBackTo.
+        var capable = CodecLadder.Rungs
+            .Where(r => r.InLadder && r.MaxChannels >= 12)
+            .Select(r => r.Label)
+            .ToList();
 
         Assert.Equal(["WavPack"], capable);
+    }
+
+    [Fact]
+    public void UncompressedFormatsAreNeverFallenBackTo()
+    {
+        // Offering a 200 MB WAV because a compression codec failed would be a nasty surprise.
+        // Match the exact keys — "wavpack" also begins with "wav".
+        IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(12, 320, ffmpeg: null);
+
+        Assert.DoesNotContain(ladder, r => r.Key is "wav" or "wav24");
+
+        // ...but naming one explicitly still works, which is the whole point of the split.
+        Assert.Single(CodecLadder.For(12, 320, ffmpeg: null, onlyKey: "wav"));
+        Assert.Single(CodecLadder.For(12, 320, ffmpeg: null, onlyKey: "wav24"));
+    }
+
+    [Fact]
+    public void UncompressedPcmCarriesMoreChannelsThanAnyCompressionCodec()
+    {
+        EncodeTarget wav = Assert.Single(CodecLadder.Rungs, r => r.Key == "wav");
+
+        foreach (EncodeTarget other in CodecLadder.Rungs.Where(r => r.Key != "wav"))
+        {
+            Assert.True(
+                wav.MaxChannels >= other.MaxChannels,
+                $"{other.Key} claims more channels ({other.MaxChannels}) than 16-bit WAV ({wav.MaxChannels})");
+        }
+
+        // 16-bit PCM is the format that actually reaches the display cap.
+        Assert.True(wav.MaxChannels >= CodecLadder.MaxDisplayedChannels);
+        Assert.Contains("最多 255 声道", CodecLadder.Describe(wav), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -183,6 +183,8 @@ ncmforge convert immersive.ncm --format flac --surround 71 \
 | E-AC-3 (DD+) | `eac3` | 有损 | 6 | 电视、功放与主流播放器广泛支持 |
 | DTS | `dts` | 有损 | 6 | 家庭影院设备与 VLC / PotPlayer |
 | FLAC | `flac` | 无损 | 8 | 全平台通用 |
+| **WAV (16-bit PCM)** | `wav` | 无损 | **255** | 所有播放器与音频编辑软件 |
+| WAV (24-bit PCM) | `wav24` | 无损 | 64 | 所有播放器与音频编辑软件 |
 | ALAC | `alac` | 无损 | 8 | Apple 生态原生；Windows Media Player 不支持 |
 | Opus | `opus` | 有损 | 8 | 现代浏览器与移动端；老硬件播放器不支持 |
 | AAC-LC (MP4) | `aac` | 有损 | 6 | 兼容性最好：Windows、移动端、各播放器通吃 |
@@ -190,9 +192,24 @@ ncmforge convert immersive.ncm --format flac --surround 71 \
 
 ```bash
 ncmforge convert song.ncm --format wavpack   # 12 声道原样保留，不降混
+ncmforge convert song.ncm --format wav       # 未压缩 PCM，逐比特还原
 ncmforge convert song.ncm --format alac      # 8 声道，Apple 生态
 ncmforge convert song.ncm --format auto      # 交给降级梯自己选
 ```
+
+### 关于两个 WAV
+
+WAV 是未压缩 PCM，文件很大（2 分 18 秒的 12 声道曲目约 250 MB），而且**不会出现在自动降级梯里** ——
+让一个压缩编码器失败后悄悄产出 250 MB 文件是很糟糕的意外。它只在明确指定时使用。
+
+两者分工来自实测差异：
+
+| | 编码器 | 实测声道上限 | 说明 |
+|---|---|---|---|
+| `wav` | `pcm_s16le` | **256**（显示 255） | 从 16 位源直通到封装器，**逐比特无损**。NCM 负载就是 16 位，所以这是完全还原的那个 |
+| `wav24` | `pcm_s24le` | 64 | 永不截断位深；但从 16 位转 24 位要过 ffmpeg 重采样器，实测卡在 64 声道 |
+
+**如果你的负载是 24 位，请用 `wav24`** —— `wav` 会把它降到 16 位。负载位深可用 `ncmforge inspect` 查看。
 
 > **声道数是实测值，不是格式规范的上限。** 两者差距很大：WavPack 的容器规范允许 256 声道，
 > 而 ffmpeg 的编码器实测停在 64；TrueHD 规范允许 16，编码器停在 6。上面写的是**这个工具实际
@@ -301,6 +318,50 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1 -SingleFile
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\make-icon.ps1
 ```
+
+---
+
+## 代码签名
+
+发布的 Windows 程序由 **Certum** 的代码签名证书签名。签名脚本是
+[`scripts/sign-windows.ps1`](scripts/sign-windows.ps1)，本地和 CI 用的是同一份。
+
+```powershell
+# 用证书存储里的证书（Certum SimplySign Desktop 登录后就是这么工作的）
+.\scripts\sign-windows.ps1 -Path dist\win-x64 -Thumbprint <证书指纹>
+
+# 用 pfx 文件
+.\scripts\sign-windows.ps1 -Path publish\NcmForge.exe -PfxPath cert.pfx -PfxPassword <密码>
+
+# 只看当前签名状态，不做任何改动
+.\scripts\sign-windows.ps1 -Path NcmForge.exe -VerifyOnly
+```
+
+脚本会 `sign` → 用 Certum 的 RFC 3161 时间戳（`http://time.certum.pl`）→ `verify /pa`。
+**时间戳不是可选项**：没有它，签名会随证书到期一起失效。任何一步失败都会抛错，而不是留下一个
+看起来可信却验证不过的文件。
+
+**为什么优先用 `-Thumbprint` 而不是 pfx。** 2023 年 6 月起 CA/Browser Forum 要求公开可信的代码
+签名证书把私钥放在硬件或云端 HSM 里，**所以 Certum 签发的公开证书根本无法导出成 pfx**。
+SimplySign Desktop 的做法就是：登录后证书出现在系统存储里，私钥留在 Certum 云端。
+`-PfxPath` 因此只适用于内部/测试证书，或自托管 runner。
+
+**关于 SignPath。** 它的签名服务本身没问题，但需要一台信任其证书链的 Windows 才能让
+SmartScreen 满意；如果目标机器没有启用该根证书的信任，签名对用户就没有意义。Certum 的根证书
+在 Windows 根存储里，所以这里选了 Certum。
+
+CI 里由 [`release.yml`](.github/workflows/release.yml) 的 `Sign the Windows binaries` 步骤完成，
+在打包**之前**签名（zip 保留字节，但打包后再签就只覆盖压缩包，而不是 SmartScreen 实际检查的那个
+程序）。需要配置的 secret：
+
+| Secret | 用途 |
+|---|---|
+| `WINDOWS_CERT_PFX_BASE64` | base64 编码的 `.pfx`（自托管 runner 或内部证书） |
+| `WINDOWS_CERT_PASSWORD` | 该 pfx 的密码 |
+| `WINDOWS_CERT_THUMBPRINT` | 证书指纹（自托管 runner 上装了 SimplySign 时用这个） |
+
+**三个都没配置时步骤会正常跳过并继续构建** —— fork 和 PR 不会因为拿不到证书而失败，
+但产出的就是未签名的程序。
 
 ---
 

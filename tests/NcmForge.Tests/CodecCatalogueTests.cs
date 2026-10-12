@@ -72,8 +72,21 @@ public sealed class CodecCatalogueTests
     [InlineData("opus", 8)]
     [InlineData("aac", 6)]
     [InlineData("mp3", 2)]
+    // 16-bit PCM reaches 256 because ffmpeg passes samples straight to the muxer; asking for 24-bit
+    // routes through the resampler, which stops at 64. Both were measured.
+    [InlineData("wav", 256)]
+    [InlineData("wav24", 64)]
     public void ChannelCeilingsAreTheMeasuredOnes(string key, int expected)
         => Assert.Equal(expected, CodecLadder.Find(key)!.MaxChannels);
+
+    [Fact]
+    public void EveryUncompressedFormatSaysWhatItIs()
+    {
+        // "WAV" alone would not tell someone choosing it that a 16-bit write of a 24-bit source is a
+        // reduction, so the depth is part of the name.
+        Assert.Contains("16-bit", CodecLadder.Find("wav")!.Label, StringComparison.Ordinal);
+        Assert.Contains("24-bit", CodecLadder.Find("wav24")!.Label, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void ADescriptionCarriesEverythingAChooserNeeds()

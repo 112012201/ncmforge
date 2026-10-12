@@ -21,6 +21,11 @@ namespace NcmForge.Core.Pipeline;
 /// <param name="LastResort">True for the final MP4/MP3 rungs, which warrant a warning when reached.</param>
 /// <param name="Compatibility">Which players actually open the result.</param>
 /// <param name="Note">Caveats worth surfacing, especially where a name over-promises.</param>
+/// <param name="InLadder">
+/// Whether the automatic fallback may land here. False for formats that are a deliberate choice
+/// rather than a fallback — an uncompressed WAV is a perfectly good output and a terrible surprise
+/// to receive because a compression codec failed.
+/// </param>
 public sealed record EncodeTarget(
     string Key,
     string Label,
@@ -32,7 +37,8 @@ public sealed record EncodeTarget(
     bool SelfTagged,
     bool LastResort,
     string Compatibility,
-    string Note);
+    string Note,
+    bool InLadder = true);
 
 /// <summary>
 /// The ordered set of codecs a re-encode may fall back through, and the catalogue a user picks from.
@@ -92,6 +98,24 @@ public static class CodecLadder
         new("flac", "FLAC", "flac", ".flac", [], 8, true, true, false,
             "全平台通用，无损首选",
             "上限 8 声道，超过需降混"),
+
+        // The two PCM entries sit beside FLAC because that is where a chooser looks for lossless,
+        // but neither takes part in the automatic ladder: an uncompressed file is a fine thing to
+        // ask for and an awful thing to receive because a compression codec happened to fail.
+        //
+        // 16-bit is the one that goes furthest. From a 16-bit source ffmpeg hands samples straight
+        // to the muxer and PCM itself has no channel limit; asking for 24-bit instead routes through
+        // the resampler, which was measured to stop at 64. Since NCM payloads are 16-bit, this is
+        // also the variant that is bit-exact rather than merely lossless in principle.
+        new("wav", "WAV (16-bit PCM)", "pcm_s16le", ".wav", [], 256, true, false, false,
+            "所有播放器与音频编辑软件都支持",
+            "未压缩 PCM，文件极大。16 位与 NCM 负载的位深一致，因此逐比特无损；负载若为 24 位请改用 WAV (24-bit PCM)",
+            InLadder: false),
+
+        new("wav24", "WAV (24-bit PCM)", "pcm_s24le", ".wav", [], 64, true, false, false,
+            "所有播放器与音频编辑软件都支持",
+            "未压缩 24 位 PCM，永远不会截断位深；但从 16 位源转 24 位要经过 ffmpeg 重采样器，实测上限 64 声道",
+            InLadder: false),
 
         new("alac", "ALAC", "alac", ".m4a", [], 8, true, true, false,
             "Apple 生态原生支持；Windows Media Player 不支持",
@@ -163,6 +187,13 @@ public static class CodecLadder
             }
 
             if (onlyKey is not null && !string.Equals(rung.Key, onlyKey, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // An explicit choice may name anything; the automatic ladder only walks the rungs that
+            // are meant to be fallen back to.
+            if (onlyKey is null && !rung.InLadder)
             {
                 continue;
             }
