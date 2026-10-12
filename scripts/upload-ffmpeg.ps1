@@ -112,6 +112,16 @@ $headers = @{
 
 $apiBase = "https://api.github.com/repos/$Owner/$Repository"
 
+# The two hosts have different reachability, so they need different routes.
+#
+#   api.github.com     is normally reachable directly, and must not be forced through the proxy: if
+#                      the proxy is down or restarting, every API call fails even though the API is
+#                      fine. PowerShell picks up HTTPS_PROXY from the environment, so it is cleared
+#                      for these calls regardless of what -Proxy says.
+#   uploads.github.com is frequently blocked directly and is the one that needs -Proxy.
+$savedProxy = [Net.WebRequest]::DefaultWebProxy
+[Net.WebRequest]::DefaultWebProxy = $null
+
 Write-Host "`nresolving release $Tag ..."
 $release = Invoke-RestMethod -Uri "$apiBase/releases/tags/$Tag" -Headers $headers
 Write-Host "  release id $($release.id)"
@@ -141,6 +151,10 @@ if ($curl) {
         '--retry-delay', '5'
         '--retry-connrefused'
         '-X', 'POST'
+        # An empty Expect suppresses the "Expect: 100-continue" handshake. Without it the proxy
+        # answers the interim 100 itself and curl reports that as the final status, so a perfectly
+        # good upload looks like "HTTP 100".
+        '-H', 'Expect:'
         '-H', "Authorization: Bearer $Token"
         '-H', 'Accept: application/vnd.github+json'
         '-H', 'Content-Type: application/zip'
@@ -171,12 +185,21 @@ else {
     $uploadHeaders = $headers.Clone()
     $uploadHeaders['Content-Type'] = 'application/zip'
 
-    $uploaded = Invoke-RestMethod `
-        -Method Post `
-        -Uri $uploadUrl `
-        -Headers $uploadHeaders `
-        -InFile $zipPath
+    # DefaultWebProxy was cleared for the API lookups above, but uploads.github.com is exactly the
+    # host that tends to need the proxy, so it is put back for this call only.
+    $uploadArgs = @{
+        Method   = 'Post'
+        Uri      = $uploadUrl
+        Headers  = $uploadHeaders
+        InFile   = $zipPath
+    }
+    if ($Proxy) { $uploadArgs.Proxy = $Proxy }
+
+    $uploaded = Invoke-RestMethod @uploadArgs
 }
+
+# Leave the process as it was found, so a caller that reuses this session is not surprised.
+[Net.WebRequest]::DefaultWebProxy = $savedProxy
 
 Write-Host ("  done: {0:N1} MB" -f ($uploaded.size / 1MB))
 Write-Host ("  url : {0}" -f $uploaded.browser_download_url)
