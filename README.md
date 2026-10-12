@@ -221,6 +221,32 @@ WAV 是未压缩 PCM，文件很大（2 分 18 秒的 12 声道曲目约 250 MB�
 
 ---
 
+## 输出采样率
+
+**所有重新编码的输出统一为 48000 Hz**，不再跟随负载原本的 44100 Hz。
+
+这不是随意挑的数字：
+
+| 编码 | 采样率限制 |
+|---|---|
+| E-AC-3 (DD+) | **只接受 32 / 44.1 / 48 kHz** |
+| DTS | **只接受 32 / 44.1 / 48 kHz** |
+| Dolby TrueHD | 通常按 48 / 96 / 192 kHz 制作 |
+| Opus | 内部**始终**重采样到 48 kHz，喂别的进去也没有意义 |
+
+界面里可以在 48000 / 44100 / 96000 和「保持负载原始采样率」之间选择，命令行用 `--rate`：
+
+```bash
+ncmforge convert song.ncm --format flac --rate 48000   # 默认
+ncmforge convert song.ncm --format flac --rate source  # 保持原始采样率
+```
+
+> **重采样不是无损操作。** 因此「原样无损提取」和直接重封装这两条路径**不受此项影响** ——
+> 一个承诺逐比特一致的文件必须保持逐比特一致，把它重采样到 48 kHz 就自相矛盾了。
+> 已经指定 `--format wav` 等编码时才会应用。
+
+---
+
 ## 编码降级梯
 
 选择「自动兼容」并开启「重新编码」后，按下列顺序逐档尝试，**失败一档降一档**，全部失败才会报错。
@@ -362,6 +388,49 @@ CI 里由 [`release.yml`](.github/workflows/release.yml) 的 `Sign the Windows b
 
 **三个都没配置时步骤会正常跳过并继续构建** —— fork 和 PR 不会因为拿不到证书而失败，
 但产出的就是未签名的程序。
+
+### 在本机签名已发布的版本
+
+SimplySign 的私钥在 Certum 云端，GitHub 托管的 runner 拿不到它，所以在**本机登录 SimplySign
+之后**用 [`scripts/sign-and-upload.ps1`](scripts/sign-and-upload.ps1) 一条龙完成签名 → 重打包 → 替换
+release 上的资产（顺带重建安装包并签名）：
+
+```powershell
+# 先查指纹
+Get-ChildItem Cert:\CurrentUser\My | Where-Object HasPrivateKey | Format-List Subject, Thumbprint
+
+# 签名 + 重打包 + 上传（下载走代理时加 -Proxy）
+powershell -ExecutionPolicy Bypass -File scripts\sign-and-upload.ps1 `
+    -Tag v1.2.4153-rc2 -Thumbprint <指纹> -Token <pat> -Proxy http://127.0.0.1:7897
+```
+
+分两步跑可以避免上传失败后重新签名：`-Prepare` 只做本地签名与重打包，`-Upload` 只做上传。
+
+---
+
+## 安装
+
+Windows 提供两种方式，**压缩包版和安装包版同时发布**：
+
+| 形式 | 文件 | 说明 |
+|---|---|---|
+| 安装包 | `NcmForge-<版本>-win-<架构>-setup.exe` | Inno Setup 制作的 exe 安装程序 |
+| 压缩包 | `NcmForge-<版本>-win-<架构>.zip` | 解压即用，绿色 |
+
+安装包**默认按用户安装，不弹 UAC**；也可以在向导里改成全机安装。它会创建开始菜单项、
+可选桌面图标、可选把 `ncmforge.exe` 加入 PATH，以及标准的卸载项。
+**卸载不会删除 `%APPDATA%` 里的设置** —— 那属于用户，重装后应当还在。
+
+三种架构各自使用**独立的 AppId**（`NcmForge_x64` / `NcmForge_x86` / `NcmForge_arm64`），
+所以 x64 安装包不会把 x86 版卸掉，而是并排安装。
+
+> **为什么用 exe 而不是 msi。** 见 [`installer/ncmforge.iss`](installer/ncmforge.iss)。
+> 选 Inno Setup 而不是 NSIS：脚本是声明式的，卸载程序和「应用和功能」条目是白送的，
+> 而且按用户安装不需要提权。
+
+安装包在 CI 里会经过**真实的安装冒烟测试**：静默安装到临时目录 → 断言两个前端、许可证和卸载项
+都在 → 运行 `ncmforge.exe --version` → 静默卸载 → 断言程序被清干净。任何一步失败都会拦住发布，
+而不是把坏安装包发出去。
 
 ---
 

@@ -134,6 +134,19 @@
             <TextBlock Classes="hint"
                        Text="FLAC 规范上限为 8 声道。12 声道的沉浸声请选择 7.1/5.1 降混，或改用「原样无损提取」保留全部声道。" />
 
+            <TextBlock Classes="section" Text="输出采样率" />
+            <ComboBox ItemsSource="{Binding SampleRates}"
+                      SelectedItem="{Binding SelectedSampleRate, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:SampleRateChoice">
+                  <TextBlock Text="{Binding Label}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock Classes="hint"
+                       Text="48 kHz 是环绕格式通用的采样率：E-AC-3 与 DTS 只接受 32/44.1/48 kHz，TrueHD 通常按 48/96/192 制作，Opus 内部也始终是 48 kHz。重采样不是无损，因此「原样无损提取」不受此项影响。" />
+
             <TextBlock Classes="section" Text="封面来源" />
             <ComboBox ItemsSource="{Binding Covers}"
                       SelectedItem="{Binding SelectedCover, Mode=TwoWay}"

@@ -1,3 +1,4 @@
+using System.Globalization;
 using NcmForge.Core.Audio;
 using NcmForge.Core.Ncm;
 using NcmForge.Core.Tools;
@@ -167,11 +168,15 @@ public static class CodecLadder
     /// When set, the result holds just that codec. This is how an explicit format choice reuses the
     /// ladder's retry, verification and tagging rather than needing a second code path.
     /// </param>
+    /// <param name="sampleRate">
+    /// Output sample rate in Hz, or 0 to keep whatever the payload already uses.
+    /// </param>
     public static IReadOnlyList<EncodeTarget> For(
         int sourceChannels,
         int bitrateKbps,
         FfmpegTool? ffmpeg,
-        string? onlyKey = null)
+        string? onlyKey = null,
+        int sampleRate = 0)
     {
         HashSet<string>? available = ffmpeg?.GetEncoderNames().ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -204,25 +209,35 @@ public static class CodecLadder
                 continue;
             }
 
-            ladder.Add(rung with { ExtraArguments = WithBitrate(rung, bitrateKbps) });
+            ladder.Add(rung with { ExtraArguments = WithEncodingParameters(rung, bitrateKbps, sampleRate) });
         }
 
         return ladder;
     }
 
-    /// <summary>Applies the caller's bitrate to the lossy rungs, which default to no bitrate argument.</summary>
-    private static IReadOnlyList<string> WithBitrate(EncodeTarget rung, int bitrateKbps)
+    /// <summary>Applies the caller's bitrate and sample rate to the rungs.</summary>
+    private static IReadOnlyList<string> WithEncodingParameters(EncodeTarget rung, int bitrateKbps, int sampleRate)
     {
-        if (rung.Lossless || bitrateKbps <= 0)
+        var arguments = new List<string>(rung.ExtraArguments);
+
+        if (!rung.Lossless && bitrateKbps > 0)
         {
-            return rung.ExtraArguments;
+            // Multichannel needs proportionally more, but the codecs involved cap out; scaling by
+            // the channel count keeps stereo from being handed a 5.1 bitrate and vice versa.
+            int scaled = rung.MaxChannels >= 6 ? bitrateKbps * 2 : bitrateKbps;
+            arguments.AddRange(["-b:a", $"{scaled}k"]);
         }
 
-        // Multichannel needs proportionally more, but the codecs involved cap out; scaling by the
-        // channel count keeps stereo from being handed a 5.1 bitrate and vice versa.
-        int scaled = rung.MaxChannels >= 6 ? bitrateKbps * 2 : bitrateKbps;
+        // Resampling is always a real conversion, so it is requested explicitly rather than left to
+        // the encoder's default. 48 kHz is the rate the surround formats are built around — E-AC-3
+        // and DTS are only legal at 32/44.1/48 kHz, TrueHD is authored at 48/96/192, and libopus
+        // resamples to 48 kHz internally whatever it is handed.
+        if (sampleRate > 0)
+        {
+            arguments.AddRange(["-ar", sampleRate.ToString(CultureInfo.InvariantCulture)]);
+        }
 
-        return [.. rung.ExtraArguments, "-b:a", $"{scaled}k"];
+        return arguments;
     }
 
     /// <summary>

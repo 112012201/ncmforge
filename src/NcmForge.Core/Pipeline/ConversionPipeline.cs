@@ -72,7 +72,8 @@ public sealed class ConversionPipeline
             EncodeTarget? rung = CodecLadder.Find(requestedCodec)
                 ?? throw new ConversionException($"Unknown output codec: {requestedCodec}");
 
-            IReadOnlyList<EncodeTarget> chosen = CodecLadder.For(channelCount, options.BitrateKbps, probe, rung.Key);
+            IReadOnlyList<EncodeTarget> chosen = CodecLadder.For(
+                channelCount, options.BitrateKbps, probe, rung.Key, options.SampleRate);
 
             if (chosen.Count == 0)
             {
@@ -89,7 +90,8 @@ public sealed class ConversionPipeline
 
         if (options.Format == OutputFormat.Compatible && options.ForceReencode)
         {
-            IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(channelCount, options.BitrateKbps, probe);
+            IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(
+                channelCount, options.BitrateKbps, probe, sampleRate: options.SampleRate);
             if (ladder.Count > 0)
             {
                 return new ConversionPlan(
@@ -511,7 +513,8 @@ public sealed class ConversionPipeline
                 .ConfigureAwait(false);
         }
 
-        IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(channelCount, options.BitrateKbps, ffmpeg, options.TargetCodec);
+        IReadOnlyList<EncodeTarget> ladder = CodecLadder.For(
+            channelCount, options.BitrateKbps, ffmpeg, options.TargetCodec, options.SampleRate);
         if (ladder.Count == 0)
         {
             throw new ConversionException("This ffmpeg build provides none of the encoders the fallback ladder needs.");

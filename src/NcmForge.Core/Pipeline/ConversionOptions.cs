@@ -104,6 +104,20 @@ public sealed class ConversionOptions
     /// </remarks>
     public bool ForceReencode { get; set; }
 
+    /// <summary>
+    /// Sample rate in Hz for every re-encode, or 0 to keep whatever the payload uses.
+    /// </summary>
+    /// <remarks>
+    /// 48 kHz by default, because that is the rate the surround formats are built around: E-AC-3
+    /// and DTS are only legal at 32/44.1/48 kHz, TrueHD is authored at 48/96/192, and libopus
+    /// resamples to 48 kHz internally whatever it is handed. A payload already at 48 kHz passes
+    /// through untouched, so this only changes anything on 44.1 kHz sources.
+    ///
+    /// This is a real sample-rate conversion and therefore <em>not</em> lossless, which is why the
+    /// remux and lossless-copy paths ignore it — a file offered as bit-exact must stay bit-exact.
+    /// </remarks>
+    public int SampleRate { get; set; } = 48_000;
+
     /// <summary>Which encoder family to prefer while re-encoding.</summary>
     public HardwareAcceleration Hardware { get; set; } = HardwareAcceleration.Disabled;
 

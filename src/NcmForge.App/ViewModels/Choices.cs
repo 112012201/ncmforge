@@ -13,6 +13,12 @@ public sealed record FormatChoice(string Label, OutputFormat Value, string? Code
 
 public sealed record SurroundChoice(string Label, SurroundMapping Value);
 
+/// <summary>
+/// A labelled sample-rate choice.
+/// </summary>
+/// <param name="Value">Rate in Hz, or 0 to keep the payload's own rate.</param>
+public sealed record SampleRateChoice(string Label, int Value);
+
 public sealed record CoverChoice(string Label, CoverMode Value);
 
 public sealed record LyricsChoice(string Label, LyricsMode Value);

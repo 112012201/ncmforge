@@ -262,6 +262,71 @@ jobs:
 
           ./scripts/sign-windows.ps1 @signArgs
 
+      # The .exe installer is an additional way to install; the zip archives stay published beside it.
+      - name: Build the Windows installer
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          ./scripts/build-installer.ps1 `
+            -StageDir stage `
+            -Version '${{ needs.version.outputs.version }}' `
+            -Arch '${{ matrix.arch }}' `
+            -OutputDir .
+
+      # Installing and running the result is the only thing that proves the installer works, and a
+      # runner is the clean Windows this cannot be checked on locally. Runs before the artifact is
+      # uploaded so a broken installer fails the build instead of reaching a release.
+      - name: Smoke-test the installer
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $setup = "NcmForge-${{ needs.version.outputs.version }}-win-${{ matrix.arch }}-setup.exe"
+          $target = Join-Path $env:RUNNER_TEMP 'install-smoke'
+          $log = Join-Path $env:RUNNER_TEMP 'install-smoke.log'
+
+          $proc = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$target", "/LOG=$log"
+          )
+
+          if ($proc.ExitCode -ne 0) {
+            Write-Host '--- installer log ---'
+            if (Test-Path $log) { Get-Content $log -Tail 40 | Write-Host }
+            throw "the installer exited with $($proc.ExitCode)"
+          }
+
+          # The two frontends are the whole point; an installer that ships one of them is broken.
+          foreach ($relative in @('NcmForge.exe', 'cli\ncmforge.exe', 'LICENSE')) {
+            $path = Join-Path $target $relative
+            if (-not (Test-Path $path)) { throw "the install is missing $relative" }
+          }
+
+          # An uninstall entry is what makes it an installer rather than a zip.
+          $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NcmForge_${{ matrix.arch }}_is1'
+          if (-not (Test-Path $uninstallKey)) { throw "no uninstall entry at $uninstallKey" }
+
+          # And the installed program has to run.
+          & (Join-Path $target 'cli\ncmforge.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw "the installed ncmforge.exe --version failed" }
+
+          $uninstaller = Get-ChildItem $target -Filter 'unins*.exe' | Select-Object -First 1
+          if (-not $uninstaller) { throw 'the install has no uninstaller' }
+
+          $un = Start-Process -FilePath $uninstaller.FullName -Wait -PassThru -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          )
+          if ($un.ExitCode -ne 0) { throw "the uninstaller exited with $($un.ExitCode)" }
+          if (Test-Path (Join-Path $target 'NcmForge.exe')) { throw 'the uninstaller left the program behind' }
+
+          Write-Host "installer verified: it installs, runs and uninstalls on a clean Windows"
+
+      - name: Upload the Windows installer
+        if: matrix.platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.rid }}-setup
+          path: NcmForge-${{ needs.version.outputs.version }}-win-${{ matrix.arch }}-setup.exe
+          if-no-files-found: error
+
       - name: Archive (Windows)
         if: matrix.format == 'zip'
         shell: pwsh

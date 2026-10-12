@@ -122,3 +122,18 @@ NcmForge 自身以 **GPL-3.0-or-later** 发布（见 [LICENSE](LICENSE)）。它
 - FFmpeg **没有** DTS-HD MA 编码器，DTS 输出是**有损** DTS 核心（`dca`/dcaenc），**不是** DTS-HD MA。
 
 "NCM"、"网易云音乐" 是网易公司的商标。本软件与网易公司无任何关联。
+
+---
+
+## Inno Setup — Simplified Chinese translation
+
+`installer/ChineseSimplified.isl` is the official Simplified Chinese translation of Inno Setup,
+taken from the Inno Setup source repository:
+
+- Source: https://github.com/jrsoftware/issrc/blob/main/Files/Languages/ChineseSimplified.isl
+- Maintainer: Zhenghan Yang
+- Licence: the Inno Setup licence (see `installer/` and https://jrsoftware.org/isinfo.php)
+
+It is vendored because Inno Setup does not bundle every official translation with every release, and
+the Windows installer is built for a Chinese-speaking audience. It is used only to compile the
+installer and is not part of the shipped program.

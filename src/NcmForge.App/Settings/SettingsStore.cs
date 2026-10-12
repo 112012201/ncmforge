@@ -31,6 +31,9 @@ public sealed record AppSettings
 
     public int Bitrate { get; init; } = 320;
 
+    /// <summary>Output sample rate in Hz; 0 keeps the payload's own rate.</summary>
+    public int SampleRate { get; init; } = 48_000;
+
     public bool KeepTemporaryFiles { get; init; }
 }
 

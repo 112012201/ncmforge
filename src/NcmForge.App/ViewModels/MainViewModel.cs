@@ -26,6 +26,8 @@ public sealed class MainViewModel : ObservableObject
     private bool _isBusy;
     private double _progress;
     private int _bitrate = 320;
+
+    private SampleRateChoice _selectedSampleRate = null!;
     private int _flacLevel = 5;
     private bool _extractElementaryStream;
     private bool _keepTemporaryFiles;
@@ -43,6 +45,16 @@ public sealed class MainViewModel : ObservableObject
             new SurroundChoice("降混为 7.1（8 声道）", SurroundMapping.DownmixTo71),
             new SurroundChoice("降混为 5.1（6 声道）", SurroundMapping.DownmixTo51),
             new SurroundChoice("降混为立体声（2 声道）", SurroundMapping.DownmixToStereo),
+        ];
+
+        // 48 kHz leads because it is the rate the surround codecs are built around; keeping the
+        // payload's own rate stays available for anyone who wants the original untouched.
+        SampleRates =
+        [
+            new SampleRateChoice("48000 Hz（推荐，环绕格式通用）", 48_000),
+            new SampleRateChoice("44100 Hz（CD 规格）", 44_100),
+            new SampleRateChoice("96000 Hz（高解析）", 96_000),
+            new SampleRateChoice("保持负载原始采样率", 0),
         ];
 
         Covers =
@@ -117,6 +129,7 @@ public sealed class MainViewModel : ObservableObject
 
         Reencode = settings.Reencode;
         Bitrate = settings.Bitrate is >= 96 and <= 512 ? settings.Bitrate : 320;
+        SelectedSampleRate = SampleRates.FirstOrDefault(r => r.Value == settings.SampleRate) ?? SampleRates[0];
         KeepTemporaryFiles = settings.KeepTemporaryFiles;
 
         HardwareChoice? hardware = HardwareModes.FirstOrDefault(h => h.Value == SettingsStore.Parse(settings.Hardware, HardwareAcceleration.Disabled));
@@ -143,6 +156,7 @@ public sealed class MainViewModel : ObservableObject
         Cover = SelectedCover.Value.ToString(),
         Lyrics = SelectedLyrics.Value.ToString(),
         Bitrate = Bitrate,
+        SampleRate = SelectedSampleRate.Value,
         KeepTemporaryFiles = KeepTemporaryFiles,
     };
 
@@ -214,6 +228,15 @@ public sealed class MainViewModel : ObservableObject
     {
         get => _selectedSurround;
         set => SetProperty(ref _selectedSurround, value);
+    }
+
+    /// <summary>Sample rates offered for re-encoding; see <see cref="ConversionOptions.SampleRate"/>.</summary>
+    public IReadOnlyList<SampleRateChoice> SampleRates { get; }
+
+    public SampleRateChoice SelectedSampleRate
+    {
+        get => _selectedSampleRate;
+        set => SetProperty(ref _selectedSampleRate, value);
     }
 
     public CoverChoice SelectedCover
@@ -565,6 +588,7 @@ public sealed class MainViewModel : ObservableObject
         ForceReencode = Reencode || SelectedFormat.CodecKey is not null,
         Hardware = Reencode ? SelectedHardware.Value : HardwareAcceleration.Disabled,
         BitrateKbps = Bitrate,
+        SampleRate = SelectedSampleRate.Value,
         FlacCompressionLevel = FlacLevel,
         OutputDirectory = string.IsNullOrWhiteSpace(OutputDirectory) ? null : OutputDirectory,
         FfmpegPath = string.IsNullOrWhiteSpace(FfmpegPath) ? null : FfmpegPath,

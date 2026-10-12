@@ -90,6 +90,22 @@ internal static class ConvertCommand
                     options.BitrateKbps = int.Parse(Next() ?? "320", System.Globalization.CultureInfo.InvariantCulture);
                     break;
 
+                case "--rate":
+                {
+                    string rate = (Next() ?? string.Empty).ToLowerInvariant();
+                    options.SampleRate = rate switch
+                    {
+                        // "source" is the escape hatch back to the payload's own rate, which is what
+                        // the tool did before 48 kHz became the default.
+                        "source" or "keep" or "0" => 0,
+                        var other => int.TryParse(other, System.Globalization.NumberStyles.Integer,
+                            System.Globalization.CultureInfo.InvariantCulture, out int parsed) && parsed > 0
+                            ? parsed
+                            : throw new ArgumentException($"unknown sample rate '{other}'; use 48000, 44100, 96000, or source"),
+                    };
+                    break;
+                }
+
                 case "--reencode":
                     options.ForceReencode = true;
                     break;
@@ -264,6 +280,7 @@ internal static class ConvertCommand
         text.AppendLine("                               channel handling (default preserve)");
         text.AppendLine("  --cover <none|embedded|online|online+embedded>");
         text.AppendLine("  --lyrics <sidecar|none>      embed the sibling .lrc file (default sidecar)");
+        text.AppendLine("  --rate <hz|source>           output sample rate (default 48000; source keeps the payload's)");
         text.AppendLine("  --bitrate <kbps>             MP3 bitrate (default 320)");
         text.AppendLine("  --out <directory>            output directory (default: alongside source)");
         text.AppendLine("  --ffmpeg <path>              explicit ffmpeg location");
