@@ -278,8 +278,14 @@ jobs:
       # Installing and running the result is the only thing that proves the installer works, and a
       # runner is the clean Windows this cannot be checked on locally. Runs before the artifact is
       # uploaded so a broken installer fails the build instead of reaching a release.
+      #
+      # arm64 is excluded on purpose: the installer declares ArchitecturesAllowed=arm64, so it
+      # correctly refuses to start on the x64 runner (exit code 1, "failed to initialize"). Letting
+      # it install anyway would mean shipping an arm64 build that a user could put on an x64 machine
+      # and find does not run. The arm64 installer is still built and published; it can only be
+      # installed on arm64 hardware.
       - name: Smoke-test the installer
-        if: matrix.platform == 'win'
+        if: matrix.platform == 'win' && matrix.arch != 'arm64'
         shell: pwsh
         run: |
           $setup = "NcmForge-${{ needs.version.outputs.version }}-win-${{ matrix.arch }}-setup.exe"
