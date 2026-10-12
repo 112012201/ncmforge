@@ -232,15 +232,79 @@ jobs:
           # NcmForge-ffmpeg-av3a-win-x64.zip
           EOF
 
-      # Signing happens before packaging: a zip preserves the bytes, but signing after archiving
-      # would cover the archive rather than the program a user's SmartScreen actually inspects.
+      # Signing happens before packaging. That ordering is the whole point: the zip and the installer
+      # must contain already-signed binaries, because neither can be signed from the outside after
+      # the fact. An Inno Setup installer stores its payload compressed, so SignPath cannot reach the
+      # programs inside it — they are signed here, first, and the installer is built around them.
       #
-      # Skipped cleanly when no certificate is configured, so forks and pull requests still build.
-      # Set WINDOWS_CERT_PFX_BASE64 (a base64 .pfx) plus WINDOWS_CERT_PASSWORD to enable it. To sign
-      # through Certum's SimplySign instead, install it on a self-hosted runner and pass the
-      # certificate's thumbprint in WINDOWS_CERT_THUMBPRINT.
-      - name: Sign the Windows binaries
-        if: matrix.platform == 'win'
+      # SignPath is the CI route and runs when the repository variables below are set. It is the right
+      # tool for a hosted runner because the key stays in SignPath's HSM: since June 2023 the
+      # CA/Browser Forum requires that of any publicly-trusted code-signing certificate, which is why
+      # Certum's SimplySign cannot be used from GitHub-hosted CI and only works locally.
+      #
+      # Required repository *variables* (Settings -> Secrets and variables -> Actions -> Variables):
+      #   SIGNPATH_ORGANIZATION_ID    the SignPath organization GUID
+      #   SIGNPATH_PROJECT_SLUG       the project slug
+      #   SIGNPATH_POLICY_SLUG        the signing policy slug
+      #   SIGNPATH_CONFIG_SLUG        artifact configuration for the two frontends (binaries.xml)
+      #   SIGNPATH_INSTALLER_CONFIG_SLUG   artifact configuration for the installer (installer.xml)
+      # Required *secret*: SIGNPATH_API_TOKEN
+      #
+      # Both artifact configurations are in installer/signpath/ for pasting into SignPath.
+      - name: Upload the unsigned binaries
+        if: matrix.platform == 'win' && vars.SIGNPATH_CONFIG_SLUG != ''
+        id: unsigned-binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-signed-binaries-${{ matrix.rid }}
+          # upload-artifact wraps this in a ZIP, which is exactly what the artifact configuration's
+          # root <zip-file> element expects. The two paths share stage/ as their root, so the archive
+          # holds NcmForge.exe and cli/ncmforge.exe.
+          path: |
+            stage/NcmForge.exe
+            stage/cli/ncmforge.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign the binaries with SignPath
+        if: matrix.platform == 'win' && vars.SIGNPATH_CONFIG_SLUG != ''
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_CONFIG_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-binaries.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/binaries
+          parameters: |
+            version: "${{ needs.version.outputs.version }}"
+
+      - name: Put the signed binaries back
+        if: matrix.platform == 'win' && vars.SIGNPATH_CONFIG_SLUG != ''
+        shell: pwsh
+        run: |
+          # SignPath returns the same archive layout it was given, so the two files land where they
+          # need to go without any path guessing.
+          foreach ($relative in @('NcmForge.exe', 'cli\ncmforge.exe')) {
+            $signed = Join-Path 'signed/binaries' $relative
+            if (-not (Test-Path $signed)) { throw "SignPath did not return $relative" }
+
+            $target = Join-Path 'stage' $relative
+            Copy-Item $signed $target -Force
+
+            # A signature that is not actually present is worse than none, because it looks fine.
+            $sig = Get-AuthenticodeSignature $target
+            if ($sig.Status -ne 'Valid') { throw "$relative came back with signature status $($sig.Status)" }
+
+            Write-Host "$relative signed by $($sig.SignerCertificate.Subject)"
+          }
+
+      # Alternative to SignPath: a certificate this build can reach directly. Only a self-hosted runner
+      # with SimplySign installed can use a publicly-trusted Certum certificate this way.
+      - name: Sign the binaries with a local certificate
+        if: matrix.platform == 'win' && vars.SIGNPATH_CONFIG_SLUG == ''
         shell: pwsh
         env:
           CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
@@ -259,7 +323,7 @@ jobs:
             $signArgs.Thumbprint = $env:CERT_THUMBPRINT
           }
           else {
-            Write-Host 'No code-signing certificate is configured; the build will be unsigned.'
+            Write-Host 'Neither SignPath nor a certificate is configured; the build will be unsigned.'
           }
 
           ./scripts/sign-windows.ps1 @signArgs
@@ -274,6 +338,50 @@ jobs:
             -Version '${{ needs.version.outputs.version }}' `
             -Arch '${{ matrix.arch }}' `
             -OutputDir .
+
+      # The installer is what a user downloads and what SmartScreen judges, so it carries its own
+      # signature in addition to the two signed programs inside it. A separate request because it is
+      # separate artifact: see installer/signpath/installer.xml for why SignPath cannot reach the
+      # payload within an Inno Setup installer.
+      - name: Upload the unsigned installer
+        if: matrix.platform == 'win' && vars.SIGNPATH_INSTALLER_CONFIG_SLUG != ''
+        id: unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer-${{ matrix.rid }}
+          path: NcmForge-${{ needs.version.outputs.version }}-win-${{ matrix.arch }}-setup.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign the installer with SignPath
+        if: matrix.platform == 'win' && vars.SIGNPATH_INSTALLER_CONFIG_SLUG != ''
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_INSTALLER_CONFIG_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/installer
+          parameters: |
+            version: "${{ needs.version.outputs.version }}"
+
+      - name: Put the signed installer back
+        if: matrix.platform == 'win' && vars.SIGNPATH_INSTALLER_CONFIG_SLUG != ''
+        shell: pwsh
+        run: |
+          $name = "NcmForge-${{ needs.version.outputs.version }}-win-${{ matrix.arch }}-setup.exe"
+          $signed = Get-ChildItem 'signed/installer' -Recurse -Filter '*.exe' | Select-Object -First 1
+          if (-not $signed) { throw 'SignPath did not return an installer' }
+
+          Copy-Item $signed.FullName $name -Force
+
+          $sig = Get-AuthenticodeSignature $name
+          if ($sig.Status -ne 'Valid') { throw "the installer came back with signature status $($sig.Status)" }
+
+          Write-Host "installer signed by $($sig.SignerCertificate.Subject)"
 
       # Installing and running the result is the only thing that proves the installer works, and a
       # runner is the clean Windows this cannot be checked on locally. Runs before the artifact is

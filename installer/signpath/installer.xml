@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for the Windows installer.
+
+  Paste this into SignPath (Project -> Artifact Configurations -> New) and note the slug; the
+  workflow reads it from the SIGNPATH_INSTALLER_CONFIG_SLUG repository variable.
+
+  This signs the installer itself and nothing inside it. It cannot reach inside: an Inno Setup
+  installer stores its payload compressed, so there are no addressable PE files within the archive
+  for SignPath to open. Signing the programs that go *into* the installer is a separate request that
+  runs earlier (see binaries.xml), and the installer is then built from those signed binaries —
+  which is why the workflow signs before it packages rather than after.
+
+  The wildcard carries the version and architecture the workflow puts in the file name, so the same
+  configuration serves every release without editing.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="NcmForge-*-win-*-setup.exe" max-matches="unbounded">
+      <authenticode-sign/>
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

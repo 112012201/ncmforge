@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for the two NcmForge frontends.
+
+  Paste this into SignPath (Project -> Artifact Configurations -> New) and note the slug you give
+  it; the workflow reads it from the SIGNPATH_ARTIFACT_CONFIG_SLUG repository variable.
+
+  Why <zip-file> is the root: the workflow uploads the binaries with actions/upload-artifact, which
+  wraps whatever it is given in a ZIP. So the signing request sees an archive, and the two PEs live
+  inside it.
+
+  NcmForge.exe is the desktop window; cli/ncmforge.exe is the command line front end, kept in its own
+  folder so it can never overwrite the window (an earlier release shipped a console program as the
+  desktop app because both were published into one directory).
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="NcmForge.exe">
+      <authenticode-sign/>
+    </pe-file>
+    <pe-file path="cli/ncmforge.exe">
+      <authenticode-sign/>
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

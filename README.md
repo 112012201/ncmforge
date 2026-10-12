@@ -389,6 +389,52 @@ CI 里由 [`release.yml`](.github/workflows/release.yml) 的 `Sign the Windows b
 **三个都没配置时步骤会正常跳过并继续构建** —— fork 和 PR 不会因为拿不到证书而失败，
 但产出的就是未签名的程序。
 
+### CI 里用 SignPath 签名（推荐）
+
+CI 用 **SignPath**。托管 runner 上这是唯一可行的方法：2023 年 6 月起公开可信的代码签名证书
+**必须把私钥放在硬件或云端 HSM**，SignPath 的密钥留在他们的 HSM 里，CI 只提交请求，
+所以它天生适合 GitHub Actions —— 而 SimplySign 需要登录的桌面客户端，托管 runner 上做不到。
+
+**签名的顺序是关键**，不是随便排的：
+
+```
+1. 发布 GUI + CLI            -> stage/
+2. 上传未签名二进制           -> actions/upload-artifact
+3. SignPath 签名两个前端      -> 取回已签名文件
+4. 放回 stage/
+5. 用已签名的文件构建安装包     <-- 安装包内部就是已签名的程序
+6. SignPath 签名安装包本身
+7. 冒烟测试安装包
+8. 打包 zip 并上传
+```
+
+安装包必须**先签名里面的程序再构建**，因为 **Inno Setup 安装包把负载压缩存放，SignPath 无法
+伸进压缩流里去签里面的 PE 文件**。所以是「先签程序 → 再打包 → 再签安装包」，而不是反过来。
+
+两份 artifact configuration 在 [`installer/signpath/`](installer/signpath/)，直接粘贴到 SignPath 即可：
+
+| 文件 | 用途 |
+|---|---|
+| [`binaries.xml`](installer/signpath/binaries.xml) | `<zip-file>` 里两个 `<pe-file>`：`NcmForge.exe` 与 `cli/ncmforge.exe` |
+| [`installer.xml`](installer/signpath/installer.xml) | `<zip-file>` 里一个通配 `<pe-file>`，匹配任意版本/架构的安装包 |
+
+需要在仓库里配置（Settings → Secrets and variables → Actions）：
+
+| 类型 | 名称 | 说明 |
+|---|---|---|
+| **Variable** | `SIGNPATH_ORGANIZATION_ID` | SignPath 组织 GUID |
+| **Variable** | `SIGNPATH_PROJECT_SLUG` | 项目 slug |
+| **Variable** | `SIGNPATH_POLICY_SLUG` | 签名策略 slug |
+| **Variable** | `SIGNPATH_CONFIG_SLUG` | 二进制用的 artifact configuration slug |
+| **Variable** | `SIGNPATH_INSTALLER_CONFIG_SLUG` | 安装包用的 artifact configuration slug |
+| **Secret** | `SIGNPATH_API_TOKEN` | 具备 submitter 权限的 API token |
+
+**这些没配置时签名步骤会整体跳过，构建照常成功** —— fork 和 PR 不受影响，只是产出未签名。
+`SIGNPATH_CONFIG_SLUG` 为空时才会走下面那条本机证书分支，两条路不会同时跑。
+
+> OSS 项目注意：SignPath 对开源项目**要求提交签名请求之前的**所有 job 都跑在 GitHub 托管的
+> runner 上。本项目全部使用 `windows-latest` / `ubuntu-latest` / `macos-latest`，符合要求。
+
 ### 在本机签名已发布的版本
 
 SimplySign 的私钥在 Certum 云端，GitHub 托管的 runner 拿不到它，所以在**本机登录 SimplySign
