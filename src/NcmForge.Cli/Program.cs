@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text;
 using NcmForge.Core.Audio;
 using NcmForge.Core.Audio.Mp4;
@@ -8,17 +9,37 @@ namespace NcmForge.Cli;
 /// <summary>Command dispatch for the diagnostic front end.</summary>
 internal static class Program
 {
+    private const string Usage = "usage: ncmforge <doctor|survey|inspect|crack|extract-es|convert|pack> [options]";
+
     private static int Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
 
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("usage: ncmforge <doctor|survey|inspect|crack|extract-es|convert|pack> [options]");
+            Console.Error.WriteLine(Usage);
             return 2;
         }
 
         string verb = args[0];
+
+        // Answered before any dispatch: a program that cannot say which build it is makes every bug
+        // report guesswork, and an installer smoke test needs something cheap and deterministic to run.
+        if (verb is "--version" or "-v" or "version")
+        {
+            Console.WriteLine(VersionText());
+            return 0;
+        }
+
+        if (verb is "--help" or "-h" or "-?" or "help")
+        {
+            Console.WriteLine(Usage);
+            Console.WriteLine();
+            Console.WriteLine("  --version        print the version and exit");
+            Console.WriteLine();
+            Console.WriteLine("Run a verb with --help for its own options, e.g. ncmforge convert --help");
+            return 0;
+        }
 
         // Verbs that take no container path handle their own argument set.
         if (verb == "doctor")
@@ -33,7 +54,7 @@ internal static class Program
 
         if (args.Length < 2)
         {
-            Console.Error.WriteLine("usage: ncmforge <doctor|survey|inspect|crack|extract-es|convert|pack> [options]");
+            Console.Error.WriteLine(Usage);
             return 2;
         }
 
@@ -86,6 +107,31 @@ internal static class Program
     {
         Console.Error.WriteLine(message);
         return 2;
+    }
+
+    /// <summary>
+    /// The version this build reports.
+    /// </summary>
+    /// <remarks>
+    /// Read from the assembly rather than hardcoded, because the release workflow stamps it with
+    /// <c>-p:Version=</c>. A build that never saw that switch falls back to the project's own
+    /// default, which is still better than printing nothing.
+    /// </remarks>
+    internal static string VersionText()
+    {
+        Assembly assembly = typeof(Program).Assembly;
+
+        string? informational = assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+
+        if (!string.IsNullOrWhiteSpace(informational))
+        {
+            // MSBuild appends build metadata after a '+'; the release version is what precedes it.
+            int plus = informational.IndexOf('+');
+            return plus > 0 ? informational[..plus] : informational;
+        }
+
+        return assembly.GetName().Version?.ToString() ?? "unknown";
     }
 
     /// <summary>
